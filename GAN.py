@@ -1,12 +1,5 @@
-import os
-import numpy as np
-import math
-
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-from torch.utils.data import DataLoader
-from torchvision import datasets
 
 class Generator(nn.Module):
     def __init__(self, latent_dim = 100, img_chaanels = 3, fmap = 64):
