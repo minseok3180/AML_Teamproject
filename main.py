@@ -21,7 +21,7 @@ def build_argparser() -> argparse.ArgumentParser:
     p.add_argument("--out_dir", type=pathlib.Path, default=pathlib.Path("images"),
                    help="Where to save generated sample grids")
     p.add_argument("--img_size", type=int, default=28)
-    p.add_argument("--channels", type=int, default=1)
+    p.add_argument("--channels", type=int, default=3)
     p.add_argument("--latent_dim", type=int, default=100)
     p.add_argument("--batch_size", type=int, default=64)
     p.add_argument("--n_epochs", type=int, default=200)
@@ -71,8 +71,8 @@ def main():
 
     os.makedirs(args.out_dir, exist_ok=True)
 
-    generator = Generator(); generator.make_model(args, img_shape*3)
-    discriminator = Discriminator(); discriminator.make_model(img_shape*3)
+    generator = Generator(); generator.make_model(args, img_shape)
+    discriminator = Discriminator(); discriminator.make_model(img_shape)
 
     generator.to(device); discriminator.to(device)
 
