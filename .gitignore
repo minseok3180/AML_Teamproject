@@ -6,5 +6,6 @@ ffhq256
 *.jpeg
 
 _pycache
+__pycache__
 .venv
 
