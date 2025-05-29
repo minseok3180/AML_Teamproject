@@ -36,7 +36,7 @@ def train(
 if __name__ == "__main__":
     # 하이퍼파라미터 설정
     batch_size = 128
-    epochs = 100
+    epochs = 1000
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # 데이터 로딩
