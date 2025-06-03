@@ -1,7 +1,8 @@
+import os
 import torch
 from torchvision import datasets, transforms
 from torch.utils.data import Dataset, DataLoader
-
+from torchvision.utils import save_image
 
 class StackedMNIST(Dataset):
     """
@@ -41,14 +42,18 @@ class StackedMNIST(Dataset):
         return stacked_img, stacked_label
 
 
+# 저장 폴더 생성
+os.makedirs('stacked_MNIST', exist_ok=True)
+
 # 데이터셋 생성
-stacked_mnist = StackedMNIST(root='./data', train=True, download=True)
+stacked_mnist = StackedMNIST(root='.', train=True, download=True)
+loader = DataLoader(stacked_mnist, batch_size=8, shuffle=True)
 
-# DataLoader
-loader = DataLoader(stacked_mnist, batch_size=64, shuffle=True)
-
-# 배치 확인
-for imgs, labels in loader:
-    print(imgs.shape)       # torch.Size([64, 3, 32, 32])
-    print(labels)           # e.g., (7, 1, 3)
-    break
+# 첫 배치 저장 (예시: 8개만 저장)
+for i, (imgs, labels) in enumerate(loader):
+    # imgs shape: [B, 3, 32, 32]
+    for j in range(imgs.size(0)):
+        img = imgs[j]
+        label = labels[j]
+        save_image(img, f'stacked_MNIST/sample_{i*imgs.size(0)+j}_labels_{"_".join(map(str,label))}.png')
+    break  # 첫 배치만 저장
