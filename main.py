@@ -3,65 +3,16 @@
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.utils.data import Dataset, DataLoader
-from torchvision import datasets, transforms
+from torch.utils.data import Dataset, DataLoader, Subset
 import os
 from tqdm import tqdm
 import matplotlib.pyplot as plt
-from PIL import Image
-from util import ResidualBlock
+
+# source code
+from dataloader import load_data
 from model import Generator, Discriminator
 from loss import discriminator_rploss, generator_rploss
-
-
-class FFHQDataset(Dataset):
-    def __init__(self, img_dir, transform=None):
-        super().__init__()
-        self.img_dir = img_dir
-        self.image_files = [
-            f for f in os.listdir(img_dir)
-            if f.lower().endswith((".png"))
-        ]
-        self.transform = transform
-
-    def __len__(self):
-        return len(self.image_files)
-
-    def __getitem__(self, idx):
-        img_path = os.path.join(self.img_dir, self.image_files[idx])
-        img = Image.open(img_path).convert("RGB")
-        if self.transform:
-            img = self.transform(img)
-        return img
-    
-
-def load_data(batch_size: int, img_dir: str) -> DataLoader:
-    """
-    FFHQ256 데이터셋 로더 반환
-    Args:
-        batch_size (int): 배치 크기 
-        img_dir (str): 이미지 데이터 경로
-    Returns:
-        DataLoader: 학습용 데이터로더
-    """
-    transform = transforms.Compose([
-        transforms.Resize(256),
-        transforms.ToTensor(),
-        transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))  # [-1, 1] 범위로 정규화
-    ])
-    
-    dataset = FFHQDataset(img_dir, transform)
-    
-    dataloader = DataLoader(
-        dataset,
-        batch_size=batch_size,
-        shuffle=True,
-        num_workers=2, 
-        pin_memory=True, 
-        drop_last=True
-    )
-    
-    return dataloader
+from fid import fid_scoring
 
 
 def train(
@@ -72,46 +23,56 @@ def train(
     lr: float,
     r1_lambda: float,
     r2_lambda: float,
-    device: torch.device):
+    device: torch.device,
+    fid_batch_size: int = 32,
+    fid_num_images: int = 1000,
+    fid_every: int = 5):
     """
-    학습 루프 실행
+    Training loop
     Args:
-        generator (nn.Module): Generator 모델
-        discriminator (nn.Module): Discriminator 모델
-        dataloader (DataLoader): 데이터로더
-        epochs (int): 에폭 수
-        lr (float): 학습률 
-        device (torch.device): 학습 디바이스
+        generator (nn.Module)
+        discriminator (nn.Module)
+        dataloader (DataLoader)
+        epochs (int)
+        lr (float) 
+        device (torch.device)
     """
-    # 옵티마이저 설정
-    optimizer_G = optim.Adam(generator.parameters(), lr=lr, betas=(0.5, 0.999))  # 깃헙 코드에서는 (0,0)으로 설정함. 
+    # optimizer
+    optimizer_G = optim.Adam(generator.parameters(), lr=lr, betas=(0.5, 0.999)) 
     optimizer_D = optim.Adam(discriminator.parameters(), lr=lr, betas=(0.5, 0.999))
     
     nz = generator.noise_dim
-    fixed_noise = torch.randn(16, nz, device=device) # 50 에폭마다 같은 노이즈를 Generator에 넣어서 생성된 이미지를 비교
+    fixed_noise = torch.randn(16, nz, device=device) # Every 50 epochs, feed the same noise into the Generator and compare the generated images.
     
-    G_losses = [] # epoch마다 평균 Generator loss 기록 
-    D_losses = [] # epoch마다 평균 Discriminator loss 기록 
+    # fid
+    real_dataset = dataloader.dataset
+    num_real_images = len(real_dataset)
+    fid_real_indices = list(range(min(fid_num_images, num_real_images))) 
+    fid_real_subset = Subset(real_dataset, fid_real_indices) 
+    fixed_fid_noise = torch.randn(len(fid_real_indices), nz, device=device)
+
+    G_losses = [] # record mean_Generator loss for every epoch 
+    D_losses = [] # record mean_Discriminator loss for every epoch
     os.makedirs('./results', exist_ok=True)
     
-    print("학습을 시작합니다...")
+    print("Training...")
     for epoch in range(epochs):
-        epoch_D_loss = 0.0 # 한 epoch의 Discriminator loss
-        epoch_G_loss = 0.0 # 한 epoch의 Generator loss 
+        epoch_D_loss = 0.0 # one epoch - Discriminator loss
+        epoch_G_loss = 0.0 # one epoch - Generator loss 
         
         pbar = tqdm(dataloader, desc=f'Epoch {epoch+1}/{epochs}')
-        for i, real_images in enumerate(pbar): # i는 몇 번째 배치인지를 나타낸다. 
-            batch_size = real_images.size(0) # 현재 배치에 들어 있는 이미지 개수 
+        for i, real_images in enumerate(pbar): # i : batch index 
+            batch_size = real_images.size(0) # the number of image in batch
             real_images = real_images.to(device)
             
             #######################
-            # Discriminator 업데이트
+            # Discriminator Update
             #######################
 
-            # gradient 초기화 
+            # gradient initialize 
             discriminator.zero_grad()
             
-            # 노이즈로 fake images 생성
+            # noise fake images generate
             noise = torch.randn(batch_size, nz, device=device)
             fake_images = generator(noise)
             
@@ -123,18 +84,18 @@ def train(
                 r1_lambda=r1_lambda,
                 r2_lambda=r2_lambda
             )
-            d_loss.backward() # 역전파 
-            optimizer_D.step() # 파라미터 업데이트 
+            d_loss.backward() # backprop 
+            optimizer_D.step() # parameter update 
             
 
             ###################
-            # Generator 업데이트
+            # Generator Update
             ###################
 
-            # gradient 초기화 
+            # gradient initialize 
             generator.zero_grad()
             
-            # 노이즈로 fake images 생성
+            # noise fake images generate
             noise = torch.randn(batch_size, nz, device=device)
             fake_images = generator(noise)
             
@@ -144,10 +105,10 @@ def train(
                 real_images,
                 fake_images
             )
-            g_loss.backward() # 역전파 
-            optimizer_G.step() # 파라미터 업데이트 
+            g_loss.backward() # backprop
+            optimizer_G.step() # parameter update 
             
-            # 손실 기록
+            # Loss
             epoch_D_loss += d_loss.item()
             epoch_G_loss += g_loss.item()
             
@@ -156,12 +117,12 @@ def train(
                 'G_loss': f'{g_loss.item():.4f}'
             })
         
-        avg_D_loss = epoch_D_loss / len(dataloader) # 한 에폭에서 평균 Discriminator loss 
-        avg_G_loss = epoch_G_loss / len(dataloader) # 한 에폭에서 평균 Generator loss 
+        avg_D_loss = epoch_D_loss / len(dataloader) # Mean Discriminator loss for one epoch 
+        avg_G_loss = epoch_G_loss / len(dataloader) # Mean Generator loss for one epoch
         D_losses.append(avg_D_loss)
         G_losses.append(avg_G_loss)
         
-        # 주기적으로 생성 이미지 저장
+        # Save generated image
         if (epoch + 1) % 50 == 0:
             with torch.no_grad():
                 fake_samples = generator(fixed_noise).detach().cpu()
@@ -176,7 +137,7 @@ def train(
                 plt.savefig(f'./results/generated_epoch_{epoch+1}.png', dpi=150, bbox_inches='tight')
                 plt.close()
         
-        # 주기적으로 체크포인트 저장
+        # Save check point
         if (epoch + 1) % 50 == 0:
             torch.save({
                 'epoch': epoch + 1,
@@ -187,10 +148,21 @@ def train(
                 'G_losses': G_losses,
                 'D_losses': D_losses,
             }, f'./results/checkpoint_epoch_{epoch+1}.pth')
+
+        # fid scoring
+        fid_scoring(epoch,
+        fid_every, 
+        generator, 
+        discriminator, 
+        fid_real_subset, 
+        fid_batch_size,
+        fid_real_indices,
+        fixed_fid_noise,
+        device)
         
         print(f'Epoch [{epoch+1}/{epochs}] - D_loss: {avg_D_loss:.4f}, G_loss: {avg_G_loss:.4f}')
     
-    # 학습 완료 후 loss 그래프 저장
+    # Loss graph
     plt.figure(figsize=(10, 5))
     plt.title("Generator and Discriminator Loss During Training")
     plt.plot(G_losses, label="G")
@@ -201,20 +173,24 @@ def train(
     plt.savefig('./results/training_loss.png')
     plt.close()
     
-    print("학습이 완료되었습니다!")
+    print("Finished Training!")
 
 
 if __name__ == "__main__":
-    batch_size = 16
+
+    ### parameter
+    batch_size = 64
+    max_images = 10000
     epochs = 1000
+    img_dir = "/home/elicer/AML_Teamproject/ffhq256"
+
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
-    print("FFHQ256 데이터를 로딩합니다...")
-    img_dir = "/home/elicer/AML_Teamproject/ffhq256"
-    dataloader = load_data(batch_size, img_dir)
-    print(f"데이터셋 크기: {len(dataloader.dataset)}")
+    print("FFHQ256 data loading...")
+    dataloader = load_data(batch_size, img_dir, max_images=max_images)
+    print(f"max images : {max_images} --- dataset size: {len(dataloader.dataset)}")
 
-    print("모델을 생성합니다...")
+    print("model generating...")
     G = Generator().to(device)
     D = Discriminator().to(device)
 
@@ -224,10 +200,13 @@ if __name__ == "__main__":
     def count_parameters(model):
         return sum(p.numel() for p in model.parameters() if p.requires_grad)
     
-    print(f"Generator 파라미터 수: {count_parameters(G):,}")
-    print(f"Discriminator 파라미터 수: {count_parameters(D):,}")
+    print(f"Generator parameter: {count_parameters(G):,}")
+    print(f"Discriminator parameter: {count_parameters(D):,}")
 
     lr = 0.0002
     r1_lambda = 10.0
     r2_lambda = 10.0
-    train(G, D, dataloader, epochs, lr, r1_lambda, r2_lambda, device)
+    train(G, D, dataloader, epochs, lr, r1_lambda, r2_lambda, device,
+        fid_batch_size=64,
+        fid_num_images=1000,
+        fid_every=1)
