@@ -4,6 +4,7 @@ ffhq256
 *.png
 *.jpg
 *.jpeg
+*.pth
 
 _pycache
 __pycache__
