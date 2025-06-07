@@ -58,12 +58,12 @@ def discriminator_rploss(discriminator, real_images, fake_images, r1_lambda, r2_
     fake_logits = discriminator(fake_images.detach()).view(-1)  # (B, 1) -> (B,), Block gradient propagation to the Generator using detach()
 
     diff_real_fake = real_logits - fake_logits # Discriminator wants to make this value large
-    d_loss = nn.functional.softplus(-diff_real_fake).mean()
+    d_rploss = nn.functional.softplus(-diff_real_fake).mean()
 
     penalty_r1 = r1_penalty(discriminator, real_images, r1_lambda)
     penalty_r2 = r2_penalty(discriminator, fake_images, r2_lambda)
 
-    final_d_loss = d_loss + penalty_r1 + penalty_r2
+    final_d_loss = d_rploss + penalty_r1 + penalty_r2
 
     return final_d_loss
 
@@ -75,4 +75,36 @@ def generator_rploss(discriminator, real_images, fake_images):
     diff_fake_real = fake_logits - real_logits # Generator wants to make this value large
     final_g_loss = nn.functional.softplus(-diff_fake_real).mean()
     
+    return final_g_loss
+
+
+# idea : rploss + hinge loss 
+def discriminator_hinge_rploss(discriminator, real_images, fake_images, r1_lambda, r2_lambda, margin: float = 1.0):
+    real_logits = discriminator(real_images).view(-1)
+    fake_logits = discriminator(fake_images.detach()).view(-1)
+
+    diff_real_fake = real_logits - fake_logits
+
+    # Check if the real logits are higher than the fake logits by margin, and if it is insufficient, treat the difference as a loss
+    d_hinge_rploss = nn.functional.relu(margin - diff_real_fake).mean()  # max(0, m - (r - f))
+  
+    penalty_r1 = r1_penalty(discriminator, real_images, r1_lambda)
+    penalty_r2 = r2_penalty(discriminator, fake_images, r2_lambda)
+
+    final_d_loss = d_hinge_rploss + penalty_r1 + penalty_r2
+
+    return final_d_loss 
+
+
+def generator_hinge_rploss(discriminator, real_images, fake_images, margin: float = 1.0):
+    real_logits = discriminator(real_images.detach()).view(-1)
+    fake_logits = discriminator(fake_images).view(-1)
+
+    diff_fake_real = fake_logits - real_logits
+
+    # Check if the fake logits are higher than the real logits by margin, and if it is insufficient, treat the difference as a loss
+    g_hinge_rploss = nn.functional.relu(margin - diff_fake_real).mean()  # max(0, m - (f - r))
+ 
+    final_g_loss = g_hinge_rploss 
+
     return final_g_loss

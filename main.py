@@ -9,21 +9,36 @@ from tqdm import tqdm
 import matplotlib.pyplot as plt
 
 # source code
-from dataloader import load_data
-from model import Generator, Discriminator
-from loss import discriminator_rploss, generator_rploss
-from fid import fid_scoring
+from dataloader import load_data_ffhq64, load_data_StackMNIST, load_data_cifar10, load_data_imagenet32
+from loss import discriminator_rploss, generator_rploss, discriminator_hinge_rploss, generator_hinge_rploss
+from metric import fid_scoring, NFETracker
+from logger import Logger 
+from train_classifier import Classifier, train_classifier
 
+import numpy as np
+import torch.nn.functional as F
+
+# Change mhsa
+use_mhsa = False
+if use_mhsa:
+    from model_mhsa import Generator, Discriminator
+    print("Using MHSA-enhanced model (model_mhsa.py)")
+else:
+    from model import Generator, Discriminator
+    print("Using baseline model (model.py)")
 
 def train(
     generator: torch.nn.Module,
     discriminator: torch.nn.Module,
     dataloader: DataLoader,
+    img_type: str,
     epochs: int,
     lr: float,
     r1_lambda: float,
     r2_lambda: float,
     device: torch.device,
+    switch_loss: bool,
+    switch_epoch: int,
     fid_batch_size: int = 32,
     fid_num_images: int = 1000,
     fid_every: int = 5):
@@ -41,27 +56,48 @@ def train(
     optimizer_G = optim.Adam(generator.parameters(), lr=lr, betas=(0.5, 0.999)) 
     optimizer_D = optim.Adam(discriminator.parameters(), lr=lr, betas=(0.5, 0.999))
     
+    # 로깅 객체 생성
+    logger = Logger(log_dir="./logs")
+
     nz = generator.noise_dim
     fixed_noise = torch.randn(16, nz, device=device) # Every 50 epochs, feed the same noise into the Generator and compare the generated images.
     
-    # fid
+    # Fid Setting
     real_dataset = dataloader.dataset
     num_real_images = len(real_dataset)
     fid_real_indices = list(range(min(fid_num_images, num_real_images))) 
     fid_real_subset = Subset(real_dataset, fid_real_indices) 
     fixed_fid_noise = torch.randn(len(fid_real_indices), nz, device=device)
 
+    # NFE Setting 
+    nfe_tracker = NFETracker()
+
     G_losses = [] # record mean_Generator loss for every epoch 
     D_losses = [] # record mean_Discriminator loss for every epoch
     os.makedirs('./results', exist_ok=True)
     
+    if img_type == 'd1':
+        clf = Classifier(num_classes=1000).to(device)
+        clf.load_state_dict(torch.load('stacked_mnist_classifier/stacked_mnist_classifier.pth', map_location=device))
+        clf.eval()
+
+        # 2) 카운터 초기화
+        mode_counts = np.zeros(1000, dtype=int)
+        prob_sum = np.zeros(1000, dtype=float)
+        total_samples = 0
+
     print("Training...")
     for epoch in range(epochs):
         epoch_D_loss = 0.0 # one epoch - Discriminator loss
         epoch_G_loss = 0.0 # one epoch - Generator loss 
         
         pbar = tqdm(dataloader, desc=f'Epoch {epoch+1}/{epochs}')
-        for i, real_images in enumerate(pbar): # i : batch index 
+        for i, batch in enumerate(pbar):
+            if img_type == 'd1':
+                real_images, _ = batch
+            else:
+                real_images = batch
+
             batch_size = real_images.size(0) # the number of image in batch
             real_images = real_images.to(device)
             
@@ -75,15 +111,26 @@ def train(
             # noise fake images generate
             noise = torch.randn(batch_size, nz, device=device)
             fake_images = generator(noise)
+
+            if img_type == 'd1':
+                with torch.no_grad():
+                    logits = clf(fake_images)
+                    probs = F.softmax(logits, dim=1).cpu().numpy()  # (batch_size, 1000)
+                preds = probs.argmax(axis=1)
+                for c in preds:
+                    mode_counts[c] += 1
+                prob_sum += probs.sum(axis=0)
+                total_samples += batch_size
             
-            # RpGAN Discriminator loss + R1 + R2
-            d_loss = discriminator_rploss(
-                discriminator,
-                real_images,
-                fake_images,
-                r1_lambda=r1_lambda,
-                r2_lambda=r2_lambda
-            )
+            # Discriminator loss
+            if not switch_loss:
+                d_loss = discriminator_rploss(discriminator, real_images, fake_images, r1_lambda=r1_lambda, r2_lambda=r2_lambda)
+            else:
+                if epoch < switch_epoch:
+                    d_loss = discriminator_rploss(discriminator, real_images, fake_images, r1_lambda=r1_lambda, r2_lambda=r2_lambda)
+                else:
+                    d_loss = discriminator_hinge_rploss(discriminator, real_images, fake_images, r1_lambda=r1_lambda, r2_lambda=r2_lambda)
+
             d_loss.backward() # backprop 
             optimizer_D.step() # parameter update 
             
@@ -99,12 +146,17 @@ def train(
             noise = torch.randn(batch_size, nz, device=device)
             fake_images = generator(noise)
             
-            # RpGAN Generator loss 
-            g_loss = generator_rploss(
-                discriminator,
-                real_images,
-                fake_images
-            )
+            # Generator loss 
+            if not switch_loss:
+                g_loss = generator_rploss(discriminator, real_images, fake_images)
+            else:
+                if epoch < switch_epoch:
+                    g_loss = generator_rploss(discriminator, real_images, fake_images)
+                else:
+                    g_loss = generator_hinge_rploss(discriminator, real_images, fake_images)
+            
+            nfe_tracker.increment()
+
             g_loss.backward() # backprop
             optimizer_G.step() # parameter update 
             
@@ -116,6 +168,7 @@ def train(
                 'D_loss': f'{d_loss.item():.4f}',
                 'G_loss': f'{g_loss.item():.4f}'
             })
+            
         
         avg_D_loss = epoch_D_loss / len(dataloader) # Mean Discriminator loss for one epoch 
         avg_G_loss = epoch_G_loss / len(dataloader) # Mean Generator loss for one epoch
@@ -123,7 +176,7 @@ def train(
         G_losses.append(avg_G_loss)
         
         # Save generated image
-        if (epoch + 1) % 50 == 0:
+        if (epoch + 1) % 10 == 0:
             with torch.no_grad():
                 fake_samples = generator(fixed_noise).detach().cpu()
                 plt.figure(figsize=(12, 12))
@@ -138,7 +191,7 @@ def train(
                 plt.close()
         
         # Save check point
-        if (epoch + 1) % 50 == 0:
+        if (epoch + 1) % 10 == 0:
             torch.save({
                 'epoch': epoch + 1,
                 'generator_state_dict': generator.state_dict(),
@@ -149,8 +202,16 @@ def train(
                 'D_losses': D_losses,
             }, f'./results/checkpoint_epoch_{epoch+1}.pth')
 
+        if img_type == 'd1':
+            p_y = prob_sum / total_samples
+            coverage = int((mode_counts > 0).sum())
+            q = np.full(1000, 1/1000)
+            p_safe = np.where(p_y > 0, p_y, 1e-12)
+            inv_kl = float((q * np.log(q / p_safe)).sum())
+            print(f"[Epoch {epoch}] Mode Coverage: {coverage}/1000, Inverse KL: {inv_kl:.6f}")
+            
         # fid scoring
-        fid_scoring(epoch,
+        fid_value = fid_scoring(epoch,
         fid_every, 
         generator, 
         discriminator, 
@@ -161,7 +222,10 @@ def train(
         device)
         
         print(f'Epoch [{epoch+1}/{epochs}] - D_loss: {avg_D_loss:.4f}, G_loss: {avg_G_loss:.4f}')
-    
+        print(f"Total NFE in Epoch {epoch+1}: {nfe_tracker.get_nfe()}")
+        
+        logger.log(epoch, avg_G_loss, avg_D_loss, fid_value)
+
     # Loss graph
     plt.figure(figsize=(10, 5))
     plt.title("Generator and Discriminator Loss During Training")
@@ -174,25 +238,72 @@ def train(
     plt.close()
     
     print("Finished Training!")
+    logger.log_final(epochs, avg_G_loss, avg_D_loss, fid_value)
 
 
 if __name__ == "__main__":
 
-    ### parameter
+    '''
+    arg - parameter
+    
+    for img_type
+    dataset 1 : Stacked MNIST
+    dataset 2 : FFHQ-64
+    dataset 3 : CIFAR-10
+    dataset 4 : ImageNet-32
+    '''
+    img_type = 'd1'
     batch_size = 64
     max_images = 10000
-    epochs = 1000
-    img_dir = "/home/elicer/AML_Teamproject/ffhq256"
+    epochs = 100
 
+    
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
-    print("FFHQ256 data loading...")
-    dataloader = load_data(batch_size, img_dir, max_images=max_images)
+    
+
+    if img_type == 'd1':
+        print("Stacked MNIST data loading...")
+        img_dir = "./data/mnist"
+        dataloader = load_data_StackMNIST(batch_size, img_dir, max_images=max_images)
+        gen_base_channels = [256, 128, 64, 32]        # for 32x32 output
+
+        lr = 1e-3
+        clf_epochs = 10
+        train_classifier(dataloader, clf_epochs, lr, device)
+
+
+
+    elif img_type == 'd2' : 
+        print("FFHQ64 data loading...")
+        tfrecord_dir = "./data/ffhq64"  # Point to the tfrecord directory
+        dataloader = load_data_ffhq64(batch_size, max_images=max_images)
+        gen_base_channels = [256, 128, 64, 32, 16]
+
+    elif img_type == 'd3' : 
+        print("cifar-10 data loading...")
+        img_dir = "./data/cifar-10"
+        dataloader = load_data_cifar10(batch_size, img_dir, max_images=max_images)
+        gen_base_channels = [256, 128, 64, 32]        # for 32x32 output 
+
+    elif img_type == 'd4':
+        print("ImageNet-32 data loading...")
+        img_dir = "./data/imagenet32"
+        dataloader = load_data_imagenet32(batch_size, img_dir, max_images=max_images)
+        gen_base_channels = [256, 128, 64, 32]        # for 32x32 output 
+
+    else : print('data type error!')
+
+
+    # Discriminator channels: reverse of generator
+    disc_base_channels = list(reversed(gen_base_channels))
+
+
     print(f"max images : {max_images} --- dataset size: {len(dataloader.dataset)}")
 
     print("model generating...")
-    G = Generator().to(device)
-    D = Discriminator().to(device)
+    G = Generator(BaseChannels=gen_base_channels).to(device)
+    D = Discriminator(BaseChannels=disc_base_channels).to(device)
 
     G.train()
     D.train()
@@ -206,7 +317,11 @@ if __name__ == "__main__":
     lr = 0.0002
     r1_lambda = 10.0
     r2_lambda = 10.0
-    train(G, D, dataloader, epochs, lr, r1_lambda, r2_lambda, device,
+
+
+    train(G, D, dataloader, img_type, epochs, lr, r1_lambda, r2_lambda, device,
+        switch_loss=True,
+        switch_epoch=250,
         fid_batch_size=64,
         fid_num_images=1000,
         fid_every=1)
