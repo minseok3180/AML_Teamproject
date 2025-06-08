@@ -59,9 +59,10 @@ def train(
     # 로깅 객체 생성
     logger = Logger(log_dir="./logs")
 
-    nz = generator.noise_dim
+    # nz = generator.noise_dim
+    nz = 100
     torch.manual_seed(42)
-    fixed_noise = torch.randn(16, nz, device=device) # Every 50 epochs, feed the same noise into the Generator and compare the generated images.
+    fixed_noise = torch.randn(16, nz, device=device) # Every 10 epochs, feed the same noise into the Generator and compare the generated images.
     
     # Fid Setting
     real_dataset = dataloader.dataset
@@ -152,7 +153,7 @@ def train(
                 g_loss = generator_rploss(discriminator, real_images, fake_images)
             else:
                 if epoch < switch_epoch:
-                    g_loss = generator_rploss(discriminator, real_images, fake_images)
+                    g_loss = generator_rploss(discriminator, real_images, fake_images) 
                 else:
                     g_loss = generator_hinge_rploss(discriminator, real_images, fake_images)
             
@@ -195,8 +196,8 @@ def train(
         if (epoch + 1) % 10 == 0:
             torch.save({
                 'epoch': epoch + 1,
-                'generator_state_dict': generator.state_dict(),
-                'discriminator_state_dict': discriminator.state_dict(),
+                'generator_state_dict': generator.module.state_dict(),
+                'discriminator_state_dict': discriminator.module.state_dict(),
                 'optimizer_G_state_dict': optimizer_G.state_dict(),
                 'optimizer_D_state_dict': optimizer_D.state_dict(),
                 'G_losses': G_losses,
@@ -306,7 +307,12 @@ if __name__ == "__main__":
     print("model generating...")
     G = Generator(BaseChannels=gen_base_channels).to(device)
     D = Discriminator(BaseChannels=disc_base_channels).to(device)
-
+    
+    G = nn.DataParallel(G)
+    D = nn.DataParallel(D)
+    G = G.cuda()
+    D = D.cuda()
+    
     G.train()
     D.train()
     
@@ -322,7 +328,7 @@ if __name__ == "__main__":
 
 
     train(G, D, dataloader, img_type, epochs, lr, r1_lambda, r2_lambda, device,
-        switch_loss=True,
+        switch_loss=False,
         switch_epoch=(epochs/2),
         fid_batch_size=64,
         fid_num_images=1000,
