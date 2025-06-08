@@ -36,7 +36,7 @@ class GBlock(nn.Module):
         # Change channels
         x = self.conv1x1(x)
         # Upsample spatially
-        x = F.interpolate(x, scale_factor=2, mode="bilinear", align_corners=False)
+        x = F.interpolate(x, scale_factor=2, mode="bilinear", align_corners=False, recompute_scale_factor=True)
         # Apply ResidualBlocks
         x = self.res_block1(x)
         x = self.res_block2(x)
@@ -74,7 +74,7 @@ class DBlock(nn.Module):
         x = self.res_block1(x)
         x = self.res_block2(x)
         # Downsample spatially
-        x = F.interpolate(x, scale_factor=0.5, mode="bilinear", align_corners=False)
+        x = F.interpolate(x, scale_factor=0.5, mode="bilinear", align_corners=False, recompute_scale_factor=True)
         # Change channels
         x = self.conv1x1(x)
         return x
@@ -103,6 +103,7 @@ class Generator(nn.Module):
             in_channels=int(1.5 * C0),
             out_channels=int(1.5 * C0),
             kernel_size=3,
+            stride=1,
             padding=1,
             bias=True
         )

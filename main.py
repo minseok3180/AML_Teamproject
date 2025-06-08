@@ -60,6 +60,7 @@ def train(
     logger = Logger(log_dir="./logs")
 
     nz = generator.noise_dim
+    torch.manual_seed(42)
     fixed_noise = torch.randn(16, nz, device=device) # Every 50 epochs, feed the same noise into the Generator and compare the generated images.
     
     # Fid Setting
@@ -219,6 +220,7 @@ def train(
         fid_batch_size,
         fid_real_indices,
         fixed_fid_noise,
+        img_type,
         device)
         
         print(f'Epoch [{epoch+1}/{epochs}] - D_loss: {avg_D_loss:.4f}, G_loss: {avg_G_loss:.4f}')
@@ -252,7 +254,7 @@ if __name__ == "__main__":
     dataset 3 : CIFAR-10
     dataset 4 : ImageNet-32
     '''
-    img_type = 'd1'
+    img_type = 'd2'
     batch_size = 64
     max_images = 10000
     epochs = 100
@@ -278,7 +280,7 @@ if __name__ == "__main__":
         print("FFHQ64 data loading...")
         tfrecord_dir = "./data/ffhq64"  # Point to the tfrecord directory
         dataloader = load_data_ffhq64(batch_size, max_images=max_images)
-        gen_base_channels = [256, 128, 64, 32, 16]
+        gen_base_channels = [128, 256, 256, 256, 256]
 
     elif img_type == 'd3' : 
         print("cifar-10 data loading...")
@@ -290,7 +292,7 @@ if __name__ == "__main__":
         print("ImageNet-32 data loading...")
         img_dir = "./data/imagenet32"
         dataloader = load_data_imagenet32(batch_size, img_dir, max_images=max_images)
-        gen_base_channels = [256, 128, 64, 32]        # for 32x32 output 
+        gen_base_channels = [1536, 1536, 1536, 1536]        # for 32x32 output 
 
     else : print('data type error!')
 
@@ -321,7 +323,7 @@ if __name__ == "__main__":
 
     train(G, D, dataloader, img_type, epochs, lr, r1_lambda, r2_lambda, device,
         switch_loss=True,
-        switch_epoch=250,
+        switch_epoch=(epochs/2),
         fid_batch_size=64,
         fid_num_images=1000,
         fid_every=1)

@@ -39,6 +39,7 @@ def fid_scoring(epoch,
         fid_batch_size,
         fid_real_indices,
         fixed_fid_noise,
+        img_type,
         device):
 
     if (epoch + 1) % fid_every == 0:
@@ -67,7 +68,13 @@ def fid_scoring(epoch,
                 
                 real_idx = 0
                 for real_batch in real_loader_for_fid:
-                    for img in real_batch:
+
+                    if img_type == 'd1':
+                        img_batch = real_batch[0]
+                    else:
+                        img_batch = real_batch
+
+                    for img in img_batch:
                         img_01 = (img + 1) / 2.0
                         pil_img = TF.to_pil_image(img_01)
                         pil_img.save(os.path.join(real_dir, f"real_{real_idx:05d}.png"))
