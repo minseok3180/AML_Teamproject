@@ -56,13 +56,13 @@ def train(
     optimizer_G = optim.Adam(generator.parameters(), lr=lr, betas=(0.5, 0.999)) 
     optimizer_D = optim.Adam(discriminator.parameters(), lr=lr, betas=(0.5, 0.999))
     
-    # 로깅 객체 생성
+    # logging
     logger = Logger(log_dir="./logs")
+    logger.log_initial(epochs, fid_batch_size, r1_lambda, r2_lambda, device, img_name)
 
-    # nz = generator.noise_dim
-    nz = 100
+    nz = generator.noise_dim
     torch.manual_seed(42)
-    fixed_noise = torch.randn(16, nz, device=device) # Every 10 epochs, feed the same noise into the Generator and compare the generated images.
+    fixed_noise = torch.randn(16, nz, device=device) # Every 50 epochs, feed the same noise into the Generator and compare the generated images.
     
     # Fid Setting
     real_dataset = dataloader.dataset
@@ -83,7 +83,6 @@ def train(
         clf.load_state_dict(torch.load('stacked_mnist_classifier/stacked_mnist_classifier.pth', map_location=device))
         clf.eval()
 
-        # 2) 카운터 초기화
         mode_counts = np.zeros(1000, dtype=int)
         prob_sum = np.zeros(1000, dtype=float)
         total_samples = 0
@@ -152,8 +151,8 @@ def train(
             if not switch_loss:
                 g_loss = generator_rploss(discriminator, real_images, fake_images)
             else:
-                if epoch < switch_epoch:
-                    g_loss = generator_rploss(discriminator, real_images, fake_images) 
+                if epoch < switch_epoch:  #switch_epoch: epochs / 2
+                    g_loss = generator_rploss(discriminator, real_images, fake_images)
                 else:
                     g_loss = generator_hinge_rploss(discriminator, real_images, fake_images)
             
@@ -178,7 +177,7 @@ def train(
         G_losses.append(avg_G_loss)
         
         # Save generated image
-        if (epoch + 1) % 10 == 0:
+        if (epoch + 1) % 1 == 0:
             with torch.no_grad():
                 fake_samples = generator(fixed_noise).detach().cpu()
                 plt.figure(figsize=(12, 12))
@@ -193,11 +192,11 @@ def train(
                 plt.close()
         
         # Save check point
-        if (epoch + 1) % 10 == 0:
+        if (epoch + 1) % 5 == 0:
             torch.save({
                 'epoch': epoch + 1,
-                'generator_state_dict': generator.module.state_dict(),
-                'discriminator_state_dict': discriminator.module.state_dict(),
+                'generator_state_dict': generator.state_dict(),
+                'discriminator_state_dict': discriminator.state_dict(),
                 'optimizer_G_state_dict': optimizer_G.state_dict(),
                 'optimizer_D_state_dict': optimizer_D.state_dict(),
                 'G_losses': G_losses,
@@ -247,20 +246,18 @@ def train(
 if __name__ == "__main__":
 
     '''
-    arg - parameter
-    
-    for img_type
+    img_type
     dataset 1 : Stacked MNIST
     dataset 2 : FFHQ-64
     dataset 3 : CIFAR-10
     dataset 4 : ImageNet-32
     '''
+
     img_type = 'd2'
     batch_size = 64
     max_images = 10000
-    epochs = 100
+    epochs = 50
 
-    
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
     
@@ -269,12 +266,13 @@ if __name__ == "__main__":
         print("Stacked MNIST data loading...")
         img_dir = "./data/mnist"
         dataloader = load_data_StackMNIST(batch_size, img_dir, max_images=max_images)
-        gen_base_channels = [256, 128, 64, 32]        # for 32x32 output
+        gen_base_channels = [128, 128, 128, 128]        # for 32x32 output
 
-        lr = 1e-3
+        lr = 0.0002
+        r1_lambda = 2
+        r2_lambda = 2
         clf_epochs = 10
         train_classifier(dataloader, clf_epochs, lr, device)
-
 
 
     elif img_type == 'd2' : 
@@ -283,11 +281,19 @@ if __name__ == "__main__":
         dataloader = load_data_ffhq64(batch_size, max_images=max_images)
         gen_base_channels = [128, 256, 256, 256, 256]
 
+        lr = 0.0002
+        r1_lambda = 2
+        r2_lambda = 2
+
     elif img_type == 'd3' : 
         print("cifar-10 data loading...")
         img_dir = "./data/cifar-10"
         dataloader = load_data_cifar10(batch_size, img_dir, max_images=max_images)
         gen_base_channels = [256, 128, 64, 32]        # for 32x32 output 
+
+        lr = 0.0002
+        r1_lambda = 2
+        r2_lambda = 2
 
     elif img_type == 'd4':
         print("ImageNet-32 data loading...")
@@ -295,24 +301,22 @@ if __name__ == "__main__":
         dataloader = load_data_imagenet32(batch_size, img_dir, max_images=max_images)
         gen_base_channels = [1536, 1536, 1536, 1536]        # for 32x32 output 
 
+        lr = 0.0002
+        r1_lambda = 2
+        r2_lambda = 2
+
     else : print('data type error!')
 
 
     # Discriminator channels: reverse of generator
     disc_base_channels = list(reversed(gen_base_channels))
-
-
+    
+    
+    print("############################### model generating ###############################")
     print(f"max images : {max_images} --- dataset size: {len(dataloader.dataset)}")
-
-    print("model generating...")
     G = Generator(BaseChannels=gen_base_channels).to(device)
     D = Discriminator(BaseChannels=disc_base_channels).to(device)
-    
-    G = nn.DataParallel(G)
-    D = nn.DataParallel(D)
-    G = G.cuda()
-    D = D.cuda()
-    
+
     G.train()
     D.train()
     
@@ -322,14 +326,17 @@ if __name__ == "__main__":
     print(f"Generator parameter: {count_parameters(G):,}")
     print(f"Discriminator parameter: {count_parameters(D):,}")
 
-    lr = 0.0002
-    r1_lambda = 10.0
-    r2_lambda = 10.0
-
+    print(f'Using device : {device}')
+    print(f'epoch : {epochs}')
+    print(f'batch size : {batch}')
+    print(f'learning rate : {lr}')
+    print(f'r1_lambda : {r1_lambda}')
+    print(f'r2_lambda : {r2_lambda}')
+    
 
     train(G, D, dataloader, img_type, epochs, lr, r1_lambda, r2_lambda, device,
         switch_loss=False,
         switch_epoch=(epochs/2),
-        fid_batch_size=64,
+        fid_batch_size=batch_size,
         fid_num_images=1000,
         fid_every=1)
