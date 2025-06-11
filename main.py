@@ -32,6 +32,7 @@ def train(
     discriminator: torch.nn.Module,
     dataloader: DataLoader,
     img_type: str,
+    img_name,
     epochs: int,
     lr: float,
     r1_lambda: float,
@@ -253,7 +254,7 @@ if __name__ == "__main__":
     dataset 4 : ImageNet-32
     '''
 
-    img_type = 'd2'
+    img_type = 'd1'
     batch_size = 64
     max_images = 10000
     epochs = 50
@@ -266,11 +267,12 @@ if __name__ == "__main__":
         print("Stacked MNIST data loading...")
         img_dir = "./data/mnist"
         dataloader = load_data_StackMNIST(batch_size, img_dir, max_images=max_images)
-        gen_base_channels = [128, 128, 128, 128]        # for 32x32 output
+        gen_base_channels = [256, 256, 256, 256]        # for 32x32 output
 
+        img_name = 'Stacked MNIST'
         lr = 0.0002
-        r1_lambda = 2
-        r2_lambda = 2
+        r1_lambda = 1
+        r2_lambda = 1
         clf_epochs = 10
         train_classifier(dataloader, clf_epochs, lr, device)
 
@@ -281,6 +283,7 @@ if __name__ == "__main__":
         dataloader = load_data_ffhq64(batch_size, max_images=max_images)
         gen_base_channels = [128, 256, 256, 256, 256]
 
+        img_name = 'FFHQ-64'
         lr = 0.0002
         r1_lambda = 2
         r2_lambda = 2
@@ -291,6 +294,7 @@ if __name__ == "__main__":
         dataloader = load_data_cifar10(batch_size, img_dir, max_images=max_images)
         gen_base_channels = [256, 128, 64, 32]        # for 32x32 output 
 
+        img_name = 'CIFAR-10'
         lr = 0.0002
         r1_lambda = 2
         r2_lambda = 2
@@ -301,6 +305,7 @@ if __name__ == "__main__":
         dataloader = load_data_imagenet32(batch_size, img_dir, max_images=max_images)
         gen_base_channels = [1536, 1536, 1536, 1536]        # for 32x32 output 
 
+        img_name = 'ImageNet-32'
         lr = 0.0002
         r1_lambda = 2
         r2_lambda = 2
@@ -328,13 +333,13 @@ if __name__ == "__main__":
 
     print(f'Using device : {device}')
     print(f'epoch : {epochs}')
-    print(f'batch size : {batch}')
+    print(f'batch size : {batch_size}')
     print(f'learning rate : {lr}')
     print(f'r1_lambda : {r1_lambda}')
     print(f'r2_lambda : {r2_lambda}')
     
 
-    train(G, D, dataloader, img_type, epochs, lr, r1_lambda, r2_lambda, device,
+    train(G, D, dataloader, img_type, img_name, epochs, lr, r1_lambda, r2_lambda, device,
         switch_loss=False,
         switch_epoch=(epochs/2),
         fid_batch_size=batch_size,
