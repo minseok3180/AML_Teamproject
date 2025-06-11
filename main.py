@@ -151,7 +151,7 @@ def train(
             if not switch_loss:
                 g_loss = generator_rploss(discriminator, real_images, fake_images)
             else:
-                if epoch < switch_epoch:
+                if epoch < switch_epoch:  #switch_epoch: epochs / 2
                     g_loss = generator_rploss(discriminator, real_images, fake_images)
                 else:
                     g_loss = generator_hinge_rploss(discriminator, real_images, fake_images)
@@ -177,7 +177,7 @@ def train(
         G_losses.append(avg_G_loss)
         
         # Save generated image
-        if (epoch + 1) % 10 == 0:
+        if (epoch + 1) % 1 == 0:
             with torch.no_grad():
                 fake_samples = generator(fixed_noise).detach().cpu()
                 plt.figure(figsize=(12, 12))
@@ -255,11 +255,14 @@ if __name__ == "__main__":
     dataset 4 : ImageNet-32
     '''
     img_type = 'd2'
-    batch_size = 64
+    batch_size = 32
     max_images = 10000
-    epochs = 100
+    epochs = 30
+    lr = 0.0002
+    r1_lambda = 10.0
+    r2_lambda = 10.0
 
-    
+
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
     
@@ -268,7 +271,7 @@ if __name__ == "__main__":
         print("Stacked MNIST data loading...")
         img_dir = "./data/mnist"
         dataloader = load_data_StackMNIST(batch_size, img_dir, max_images=max_images)
-        gen_base_channels = [256, 128, 64, 32]        # for 32x32 output
+        gen_base_channels = [128, 128, 128, 128]        # for 32x32 output
 
         lr = 1e-3
         clf_epochs = 10
@@ -281,6 +284,10 @@ if __name__ == "__main__":
         tfrecord_dir = "./data/ffhq64"  # Point to the tfrecord directory
         dataloader = load_data_ffhq64(batch_size, max_images=max_images)
         gen_base_channels = [128, 256, 256, 256, 256]
+
+        lr = 0.00005
+        r1_lambda = 0.2
+        r2_lambda = 0.2
 
     elif img_type == 'd3' : 
         print("cifar-10 data loading...")
@@ -316,14 +323,12 @@ if __name__ == "__main__":
     print(f"Generator parameter: {count_parameters(G):,}")
     print(f"Discriminator parameter: {count_parameters(D):,}")
 
-    lr = 0.0002
-    r1_lambda = 10.0
-    r2_lambda = 10.0
+    
 
 
     train(G, D, dataloader, img_type, epochs, lr, r1_lambda, r2_lambda, device,
         switch_loss=True,
         switch_epoch=(epochs/2),
-        fid_batch_size=64,
+        fid_batch_size=batch_size,
         fid_num_images=1000,
         fid_every=1)
