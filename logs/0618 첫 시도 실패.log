@@ -1,0 +1,24 @@
+2025-06-18 09:37:09,787 - Stacked MNIST parameter setting
+2025-06-18 09:37:09,787 - Epoch : 25, batch size : 128, r1 lambda : 10, r2 lambda : 10, 
+2025-06-18 09:37:09,787 - ################ Training Start ################
+2025-06-18 09:37:09,788 - Stacked MNIST parameter setting
+2025-06-18 09:37:09,788 - Epoch : 25, batch size : 128, r1 lambda : 10, r2 lambda : 10, 
+2025-06-18 09:37:09,788 - ################ Training Start ################
+2025-06-18 09:37:09,793 - Stacked MNIST parameter setting
+2025-06-18 09:37:09,794 - Stacked MNIST parameter setting
+2025-06-18 09:37:09,794 - Epoch : 25, batch size : 128, r1 lambda : 10, r2 lambda : 10, 
+2025-06-18 09:37:09,794 - Epoch : 25, batch size : 128, r1 lambda : 10, r2 lambda : 10, 
+2025-06-18 09:37:09,794 - ################ Training Start ################
+2025-06-18 09:37:09,794 - ################ Training Start ################
+2025-06-18 09:44:56,102 - Epoch [0], train G_Loss: 2.6280, train D_Loss: 2.4218, FID: 470.7192
+2025-06-18 09:52:41,580 - Epoch [1], train G_Loss: 1.5069, train D_Loss: 25983.5811, FID: 470.7192
+2025-06-18 10:00:27,163 - Epoch [2], train G_Loss: 1.7581, train D_Loss: 28.4371, FID: 470.7192
+2025-06-18 10:08:11,694 - Epoch [3], train G_Loss: 1.9418, train D_Loss: 11.7400, FID: 470.7192
+2025-06-18 10:15:56,222 - Epoch [4], train G_Loss: 2.0565, train D_Loss: 0.2340, FID: 470.7192
+2025-06-18 10:23:40,484 - Epoch [5], train G_Loss: 2.1810, train D_Loss: 0.2218, FID: 470.7192
+2025-06-18 10:31:24,679 - Epoch [6], train G_Loss: 2.2759, train D_Loss: 0.2294, FID: 470.7192
+2025-06-18 10:39:09,115 - Epoch [7], train G_Loss: 2.3750, train D_Loss: 0.1822, FID: 470.7192
+2025-06-18 10:46:53,275 - Epoch [8], train G_Loss: 2.4693, train D_Loss: 0.2059, FID: 470.7192
+2025-06-18 10:54:37,900 - Epoch [9], train G_Loss: 2.5579, train D_Loss: 0.3343, FID: 470.7192
+2025-06-18 11:02:22,494 - Epoch [10], train G_Loss: 2.8061, train D_Loss: 0.1951, FID: 470.7192
+2025-06-18 11:10:06,515 - Epoch [11], train G_Loss: 3.0402, train D_Loss: 0.1221, FID: 470.7192
