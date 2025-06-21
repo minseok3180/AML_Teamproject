@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 
 # source code
 from dataloader import load_data_ffhq64, load_data_StackMNIST, load_data_cifar10, load_data_imagenet32
-from loss import discriminator_rploss, generator_rploss, discriminator_hinge_rploss, generator_hinge_rploss
+from loss import r1_penalty, r2_penalty, discriminator_rploss, generator_rploss, discriminator_hinge_rploss, generator_hinge_rploss
 from metric import fid_scoring, NFETracker
 from logger import Logger 
 from train_classifier import Classifier, train_classifier
@@ -61,7 +61,7 @@ def train(
     logger = Logger(log_dir="./logs")
     logger.log_initial(epochs, fid_batch_size, r1_lambda, r2_lambda, device, img_name)
 
-    nz = generator.noise_dim
+    nz = 100
     torch.manual_seed(42)
     fixed_noise = torch.randn(16, nz, device=device) # Every 50 epochs, feed the same noise into the Generator and compare the generated images.
     
@@ -126,7 +126,16 @@ def train(
             
             # Discriminator loss
             if not switch_loss:
-                d_loss = discriminator_rploss(discriminator, real_images, fake_images, r1_lambda=r1_lambda, r2_lambda=r2_lambda)
+                # 1) unwrap the DataParallel module so penalty runs on main GPU
+                main_disc = discriminator.module 
+                # 2) move images to cuda:0 for penalty
+                real_images0 = real_images.clone().detach().to('cuda:0').requires_grad_(True)
+                fake_images0 = fake_images.clone().detach().to('cuda:0').requires_grad_(True)
+                # 3) compute RP‐loss using main_disc on cuda:0
+                d_loss_basic = nn.functional.softplus(-(discriminator(real_images) - discriminator(fake_images).detach())).mean()
+                penalty_r1 = r1_penalty(main_disc, real_images0, r1_lambda)
+                penalty_r2 = r2_penalty(main_disc, fake_images0, r2_lambda)
+                d_loss = d_loss_basic + penalty_r1 + penalty_r2
             else:
                 if epoch < switch_epoch:
                     d_loss = discriminator_rploss(discriminator, real_images, fake_images, r1_lambda=r1_lambda, r2_lambda=r2_lambda)
@@ -255,9 +264,9 @@ if __name__ == "__main__":
     '''
 
     img_type = 'd1'
-    batch_size = 64
-    max_images = 10000
-    epochs = 50
+    batch_size = 512
+    max_images = 128000
+    epochs = 25
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
@@ -271,8 +280,8 @@ if __name__ == "__main__":
 
         img_name = 'Stacked MNIST'
         lr = 0.0002
-        r1_lambda = 1
-        r2_lambda = 1
+        r1_lambda = 10
+        r2_lambda = 10
         clf_epochs = 10
         train_classifier(dataloader, clf_epochs, lr, device)
 
@@ -322,6 +331,12 @@ if __name__ == "__main__":
     G = Generator(BaseChannels=gen_base_channels).to(device)
     D = Discriminator(BaseChannels=disc_base_channels).to(device)
 
+    # DataParallel 추가
+    G = nn.DataParallel(G)
+    D = nn.DataParallel(D)
+    G = G.cuda()
+    D = D.cuda()
+    
     G.train()
     D.train()
     
@@ -343,5 +358,5 @@ if __name__ == "__main__":
         switch_loss=False,
         switch_epoch=(epochs/2),
         fid_batch_size=batch_size,
-        fid_num_images=1000,
+        fid_num_images=12800,
         fid_every=1)
