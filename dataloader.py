@@ -273,6 +273,12 @@ def load_data_StackMNIST(batch_size: int, img_dir: str = './data/mnist', max_ima
     
     return dataloader
 
+if __name__ == "__main__":
+    dataloader = load_data_StackMNIST(batch_size=64, img_dir='./data/mnist', max_images=1000)
+    for images, labels in dataloader:
+        print(images.shape)  # Expected: [64, 3, 32, 32]
+        print(labels[0])     # Expected: (digit1, digit2, digit3)
+        break
 
 
 
