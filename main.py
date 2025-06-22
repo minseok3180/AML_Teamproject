@@ -7,6 +7,8 @@ from torch.utils.data import Dataset, DataLoader, Subset
 import os
 from tqdm import tqdm
 import matplotlib.pyplot as plt
+import math 
+import copy
 
 # source code
 from dataloader import load_data_ffhq64, load_data_StackMNIST, load_data_cifar10, load_data_imagenet32
@@ -27,6 +29,20 @@ else:
     from model import Generator, Discriminator
     print("Using baseline model (model.py)")
 
+# Global variables 
+duration_mimg   = 10.0
+duration_images = duration_mimg * 1_000_000   
+
+beta2_start  = 0.9      # inital β₂
+beta2_end    = 0.99     # final β₂
+burn_in_mimg = 2.0      # Mimg
+
+gamma_start = 1.0    # initial γ
+gamma_end   = 0.1    # final γ
+
+ema_start     = 0.0      # initial half-life in Mimg
+ema_end       = 0.5      # target  half-life in Mimg
+
 def train(
     generator: torch.nn.Module,
     discriminator: torch.nn.Module,
@@ -42,7 +58,8 @@ def train(
     switch_epoch: int,
     fid_batch_size: int = 32,
     fid_num_images: int = 1000,
-    fid_every: int = 5):
+    fid_every: int = 5,
+    ):
     """
     Training loop
     Args:
@@ -54,9 +71,19 @@ def train(
         device (torch.device)
     """
     # optimizer
-    optimizer_G = optim.Adam(generator.parameters(), lr=lr, betas=(0.5, 0.999)) 
-    optimizer_D = optim.Adam(discriminator.parameters(), lr=lr, betas=(0.5, 0.999))
-    
+    optimizer_G = optim.Adam(generator.parameters(), lr=lr, betas=(0.5, beta2_start))
+    optimizer_D = optim.Adam(discriminator.parameters(), lr=lr, betas=(0.5, beta2_start))
+
+    ema_generator = copy.deepcopy(generator)
+    for p in ema_generator.parameters():
+        p.requires_grad_(False)
+
+    # for burn-in 
+    dataset_size   = len(dataloader.dataset)        # 예: 128_000
+    images_seen = 0
+    burn_in_images = burn_in_mimg * 1_000_000       # 2 Mimg → 2,000,000
+    burn_in_epochs = math.ceil(burn_in_images / dataset_size)
+
     # logging
     logger = Logger(log_dir="./logs")
     logger.log_initial(epochs, fid_batch_size, r1_lambda, r2_lambda, device, img_name)
@@ -77,6 +104,9 @@ def train(
 
     G_losses = [] # record mean_Generator loss for every epoch 
     D_losses = [] # record mean_Discriminator loss for every epoch
+    Fid_list = []
+    Mode_coverage_list = []
+    KL_divergence_list = []
     os.makedirs('./results', exist_ok=True)
     
     if img_type == 'd1':
@@ -88,8 +118,9 @@ def train(
         prob_sum = np.zeros(1000, dtype=float)
         total_samples = 0
 
-    print("Training...")
+    print(f"Training for {epochs} epochs (burn-in: {burn_in_epochs} epochs)...")
     for epoch in range(epochs):
+                
         epoch_D_loss = 0.0 # one epoch - Discriminator loss
         epoch_G_loss = 0.0 # one epoch - Generator loss 
         
@@ -102,7 +133,29 @@ def train(
 
             batch_size = real_images.size(0) # the number of image in batch
             real_images = real_images.to(device)
+
+            images_seen += batch_size
+            t = min(images_seen, burn_in_images) / burn_in_images  # ∈ [0,1]
+
             
+            # beta scheduling 
+            beta2 = beta2_start + 0.5 * (beta2_end - beta2_start) * (1 - math.cos(math.pi * t))
+            for opt in (optimizer_G, optimizer_D):
+                for pg in opt.param_groups:
+                    pg['betas'] = (0.5, beta2)
+
+            # gamma scheduling
+            gamma = gamma_start + 0.5*(gamma_end - gamma_start)*(1 - math.cos(math.pi * t))
+
+            current_ema_hl_mimg   = ema_start + 0.5*(ema_end - ema_start)*(1 - math.cos(math.pi*t))
+            current_ema_hl_images = current_ema_hl_mimg * 1_000_000
+
+            if current_ema_hl_mimg == 0.0:
+                ema_decay = 0.0
+            else:
+                H = current_ema_hl_mimg * 1_000_000 
+                ema_decay = math.exp(-math.log(2) * batch_size / H)
+
             #######################
             # Discriminator Update
             #######################
@@ -135,12 +188,12 @@ def train(
                 d_loss_basic = nn.functional.softplus(-(discriminator(real_images) - discriminator(fake_images).detach())).mean()
                 penalty_r1 = r1_penalty(main_disc, real_images0, r1_lambda)
                 penalty_r2 = r2_penalty(main_disc, fake_images0, r2_lambda)
-                d_loss = d_loss_basic + penalty_r1 + penalty_r2
+                d_loss = d_loss_basic + gamma * (penalty_r1 + penalty_r2)
             else:
                 if epoch < switch_epoch:
-                    d_loss = discriminator_rploss(discriminator, real_images, fake_images, r1_lambda=r1_lambda, r2_lambda=r2_lambda)
+                    d_loss = discriminator_rploss(discriminator, real_images, fake_images, gamma, r1_lambda=r1_lambda, r2_lambda=r2_lambda)
                 else:
-                    d_loss = discriminator_hinge_rploss(discriminator, real_images, fake_images, r1_lambda=r1_lambda, r2_lambda=r2_lambda)
+                    d_loss = discriminator_hinge_rploss(discriminator, real_images, fake_images, gamma, r1_lambda=r1_lambda, r2_lambda=r2_lambda)
 
             d_loss.backward() # backprop 
             optimizer_D.step() # parameter update 
@@ -170,6 +223,12 @@ def train(
 
             g_loss.backward() # backprop
             optimizer_G.step() # parameter update 
+
+            # EMA
+            with torch.no_grad():
+               for p_ema, p in zip(ema_generator.parameters(), generator.parameters()):
+                   p_ema.data.mul_(ema_decay).add_(p.data * (1.0 - ema_decay))
+
             
             # Loss
             epoch_D_loss += d_loss.item()
@@ -185,11 +244,12 @@ def train(
         avg_G_loss = epoch_G_loss / len(dataloader) # Mean Generator loss for one epoch
         D_losses.append(avg_D_loss)
         G_losses.append(avg_G_loss)
+
         
         # Save generated image
         if (epoch + 1) % 1 == 0:
             with torch.no_grad():
-                fake_samples = generator(fixed_noise).detach().cpu()
+                fake_samples = ema_generator(fixed_noise).cpu()
                 plt.figure(figsize=(12, 12))
                 plt.axis("off")
                 plt.title(f"Generated FFHQ Images - Epoch {epoch+1}")
@@ -236,9 +296,16 @@ def train(
         print(f'Epoch [{epoch+1}/{epochs}] - D_loss: {avg_D_loss:.4f}, G_loss: {avg_G_loss:.4f}')
         print(f"Total NFE in Epoch {epoch+1}: {nfe_tracker.get_nfe()}")
         
-        logger.log(epoch, avg_G_loss, avg_D_loss, fid_value)
+        Fid_list.append(fid_value)
+        Mode_coverage_list.append(coverage if img_type == 'd1' else None)
+        KL_divergence_list.append(inv_kl if img_type == 'd1' else None)
 
-    # Loss graph
+        if img_type == 'd1':
+            logger.logd1(epoch, avg_G_loss, avg_D_loss, fid_value, coverage, inv_kl)
+        else:
+            logger.log(epoch, avg_G_loss, avg_D_loss, fid_value)
+
+    # Visualize
     plt.figure(figsize=(10, 5))
     plt.title("Generator and Discriminator Loss During Training")
     plt.plot(G_losses, label="G")
@@ -248,6 +315,36 @@ def train(
     plt.legend()
     plt.savefig('./results/training_loss.png')
     plt.close()
+
+    plt.figure(figsize=(10, 5))
+    plt.title("Fid During Training")
+    plt.plot(Fid_list, label="FID")
+    plt.xlabel("Epochs")
+    plt.ylabel("FID")
+    plt.legend()
+    plt.savefig('./results/training_fid.png')
+    plt.close()
+
+
+    if img_type == 'd1':
+        plt.figure(figsize=(10, 5))
+        plt.title("Mode Coverage During Training")
+        plt.plot(Mode_coverage_list, label="Mode Coverage")
+        plt.xlabel("Epochs")
+        plt.ylabel("Mode Coverage")
+        plt.legend()
+        plt.savefig('./results/training_mode_coverage.png')
+        plt.close()
+
+        plt.figure(figsize=(10, 5))
+        plt.title("Inverse KL Divergence During Training")
+        plt.plot(KL_divergence_list, label="Inverse KL Divergence")
+        plt.xlabel("Epochs")
+        plt.ylabel("Value")
+        plt.legend()
+        plt.savefig('./results/training_kl.png')
+        plt.close()
+
     
     print("Finished Training!")
     logger.log_final(epochs, avg_G_loss, avg_D_loss, fid_value)
@@ -266,7 +363,6 @@ if __name__ == "__main__":
     img_type = 'd1'
     batch_size = 512
     max_images = 128000
-    epochs = 25
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
@@ -321,6 +417,8 @@ if __name__ == "__main__":
 
     else : print('data type error!')
 
+    dataset_size    = len(dataloader.dataset) 
+    epochs = math.ceil(duration_images / dataset_size)
 
     # Discriminator channels: reverse of generator
     disc_base_channels = list(reversed(gen_base_channels))
@@ -356,7 +454,7 @@ if __name__ == "__main__":
 
     train(G, D, dataloader, img_type, img_name, epochs, lr, r1_lambda, r2_lambda, device,
         switch_loss=False,
-        switch_epoch=(epochs/2),
+        switch_epoch=int(epochs/2),
         fid_batch_size=batch_size,
         fid_num_images=12800,
         fid_every=1)
