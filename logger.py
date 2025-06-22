@@ -28,6 +28,10 @@ class Logger:
     def log(self, epoch, G_loss, D_loss, fid, mode='train'):
         log_message = f"Epoch [{epoch}], {mode} G_Loss: {G_loss:.4f}, {mode} D_Loss: {D_loss:.4f}, FID: {fid:.4f}"
         self.logger.info(log_message)
+    
+    def logd1(self, epoch, G_loss, D_loss, fid, coverage, inv_kl, mode='train'):
+        log_message = f"Epoch [{epoch}], {mode} G_Loss: {G_loss:.4f}, {mode} D_Loss: {D_loss:.4f}, FID: {fid:.4f}, Mode Coverage: {coverage:.4f}, KL : {inv_kl:.4f}"
+        self.logger.info(log_message)
 
     def log_initial(self, epochs, batch_size, r1_lambda, r2_lambda, device, img_name):
         self.logger.info(f"{img_name} parameter setting")
