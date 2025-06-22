@@ -56,7 +56,7 @@ def r2_penalty(discriminator, fake_images, r2_lambda):
     return penalty
 
 
-def discriminator_rploss(discriminator, real_images, fake_images, r1_lambda, r2_lambda):
+def discriminator_rploss(discriminator, real_images, fake_images, gamma, r1_lambda, r2_lambda):
     # 기본 RPLoss
     real_logits = discriminator(real_images).view(-1)               # (B,)
     fake_logits = discriminator(fake_images.detach()).view(-1)     # (B,)
@@ -67,7 +67,7 @@ def discriminator_rploss(discriminator, real_images, fake_images, r1_lambda, r2_
     penalty_r1 = r1_penalty(discriminator, real_images, r1_lambda)
     penalty_r2 = r2_penalty(discriminator, fake_images, r2_lambda)
 
-    return d_rploss + penalty_r1 + penalty_r2
+    return d_rploss + gamma * (penalty_r1 + penalty_r2)
 
 
 def generator_rploss(discriminator, real_images, fake_images):
@@ -77,7 +77,7 @@ def generator_rploss(discriminator, real_images, fake_images):
     return nn.functional.softplus(-diff).mean()
 
 
-def discriminator_hinge_rploss(discriminator, real_images, fake_images,
+def discriminator_hinge_rploss(discriminator, real_images, fake_images, gamma,
                               r1_lambda, r2_lambda, margin: float = 1.0):
     real_logits = discriminator(real_images).view(-1)
     fake_logits = discriminator(fake_images.detach()).view(-1)
@@ -87,7 +87,7 @@ def discriminator_hinge_rploss(discriminator, real_images, fake_images,
     penalty_r1 = r1_penalty(discriminator, real_images, r1_lambda)
     penalty_r2 = r2_penalty(discriminator, fake_images, r2_lambda)
 
-    return d_hinge + penalty_r1 + penalty_r2
+    return d_hinge + gamma * (penalty_r1 + penalty_r2)
 
 
 def generator_hinge_rploss(discriminator, real_images, fake_images, margin: float = 1.0):
