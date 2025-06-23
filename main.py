@@ -4,6 +4,8 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader, Subset
+from torch.nn.parallel import DistributedDataParallel as DDP
+from torch.utils.data import Dataset, DataLoader, Subset
 import os
 from tqdm import tqdm
 import matplotlib.pyplot as plt
@@ -122,6 +124,8 @@ def train(
 
     print(f"Training for {epochs} epochs (warm-up: {warmup_epochs} epochs, burn-in: {burn_in_epochs} epochs)")
     for epoch in range(epochs):
+        if hasattr(dataloader, 'sampler'):
+            dataloader.sampler.set_epoch(epoch)
 
         if img_type == 'd1':
             mode_counts = np.zeros(1000, dtype=int)
@@ -191,20 +195,7 @@ def train(
             
             # Discriminator loss
             if not switch_loss:
-                # 1) unwrap the DataParallel module so penalty runs on main GPU
-                main_disc = discriminator.module 
-                # 2) move images to cuda:0 for penalty
-                real_images0 = real_images.clone().detach().to('cuda:0').requires_grad_(True)
-                fake_images0 = fake_images.clone().detach().to('cuda:0').requires_grad_(True)
-                # 3) compute RP‐loss 
-                d_loss_basic = nn.functional.softplus(-(discriminator(real_images) - discriminator(fake_images).detach())).mean()
-                penalty_r1 = r1_penalty(main_disc, real_images0)
-                penalty_r2 = r2_penalty(main_disc, fake_images0)
-                d_loss = d_loss_basic + (gamma / 2) * (penalty_r1 + penalty_r2)
-
-                r1_penalty_list.append(penalty_r1.item())
-                r2_penalty_list.append(penalty_r2.item())
- 
+                d_loss = discriminator_rploss(discriminator, real_images, fake_images, gamma) 
             else:
                 if epoch < switch_epoch:
                     d_loss = discriminator_rploss(discriminator, real_images, fake_images, gamma)
@@ -263,7 +254,7 @@ def train(
 
         
         # Save generated image
-        if (epoch + 1) % 1 == 0:
+        if (epoch + 1) % 1 == 0 and dist.get_rank() == 0:
             with torch.no_grad():
                 fake_samples = ema_generator(fixed_noise).cpu()
                 plt.figure(figsize=(12, 12))
@@ -278,7 +269,7 @@ def train(
                 plt.close()
         
         # Save check point
-        if (epoch + 1) % 5 == 0:
+        if (epoch + 1) % 5 == 0 and dist.get_rank() == 0:
             torch.save({
                 'epoch': epoch + 1,
                 'generator_state_dict': generator.state_dict(),
@@ -313,6 +304,11 @@ def train(
         fixed_fid_noise,
         img_type,
         device)
+
+        #eval 모드에서 다시 train 모드로
+        ema_generator.train()
+        generator.train()
+        discriminator.train()
         
         print(f'Epoch [{epoch+1}/{epochs}] - D_loss: {avg_D_loss:.4f}, G_loss: {avg_G_loss:.4f}')
         print(f"Total NFE in Epoch {epoch+1}: {nfe_tracker.get_nfe()}")
@@ -374,9 +370,9 @@ def train(
         plt.tight_layout()
         plt.savefig("./results/penalties.png")
         plt.close()
-    
-    print("Finished Training!")
-    logger.log_final(epochs, avg_G_loss, avg_D_loss, fid_value)
+    if dist.get_rank() == 0:
+        print("Finished Training!")
+        logger.log_final(epochs, avg_G_loss, avg_D_loss, fid_value)
 
 
 if __name__ == "__main__":
@@ -390,7 +386,7 @@ if __name__ == "__main__":
     '''
 
     img_type = 'd1'
-    batch_size = 512
+    batch_size = 128
     max_images = 128000
 
 
@@ -409,7 +405,7 @@ if __name__ == "__main__":
 
         img_name = 'Stacked MNIST'
         lr = 0.0002
-        clf_epochs = 3
+        clf_epochs = 10
         train_classifier(dataloader, clf_epochs, lr, device)
 
 
@@ -458,12 +454,18 @@ if __name__ == "__main__":
     G = Generator(BaseChannels=gen_base_channels).to(device)
     D = Discriminator(BaseChannels=disc_base_channels).to(device)
 
-    # DataParallel 추가
-    G = nn.DataParallel(G)
-    D = nn.DataParallel(D)
-    G = G.cuda()
-    D = D.cuda()
-    
+    #DDP
+    dist.init_process_group(backend="nccl", init_method="env://")
+
+    local_rank = int(os.environ["LOCAL_RANK"])
+    torch.cuda.set_device(local_rank)
+    device = torch.device(f"cuda:{local_rank}")
+
+    G = G.to(device)
+    D = D.to(device)
+    G = DDP(G, device_ids=[local_rank], output_device=local_rank)
+    D = DDP(D, device_ids=[local_rank], output_device=local_rank)
+
     G.train()
     D.train()
     
