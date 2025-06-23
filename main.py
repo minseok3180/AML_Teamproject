@@ -382,6 +382,7 @@ if __name__ == "__main__":
     batch_size = 256
     max_images = 10000
 
+
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
     
@@ -390,8 +391,10 @@ if __name__ == "__main__":
         print("Stacked MNIST data loading...")
         img_dir = "./data/mnist"
         dataloader = load_data_StackMNIST(batch_size, img_dir, max_images=max_images)
+
         # gen_base_channels = [256, 256, 256, 256]        # for 32x32 output
         gen_base_channels = [128, 128, 128, 128]
+
 
         img_name = 'Stacked MNIST'
         lr = 0.0002
@@ -405,9 +408,11 @@ if __name__ == "__main__":
         dataloader = load_data_ffhq64(batch_size, max_images=max_images)
         gen_base_channels = [128, 256, 256, 256, 256]
 
+
         img_name = 'FFHQ-64'
         lr = 0.0002
         
+
 
     elif img_type == 'd3' : 
         print("cifar-10 data loading...")
@@ -457,12 +462,15 @@ if __name__ == "__main__":
     print(f"Generator parameter: {count_parameters(G):,}")
     print(f"Discriminator parameter: {count_parameters(D):,}")
 
+
     print(f'Using device : {device}')
     print(f'epoch : {epochs}')
     print(f'batch size : {batch_size}')
     print(f'learning rate : {lr}')
 
+
     
+
 
     train(G, D, dataloader, img_type, img_name, epochs, lr, device,
         switch_loss=False,

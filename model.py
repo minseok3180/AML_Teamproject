@@ -47,6 +47,7 @@ class Generator(nn.Module):
                  BaseChannels: list = [256, 128, 64, 32, 16, 8, 4],
                  cardinality: int = 2, expension: int = 2,
                  dropout_rate: float = 0.2):
+
         super().__init__()
         self.noise_dim = 100
         self.BaseChannels = BaseChannels
@@ -79,6 +80,7 @@ class Generator(nn.Module):
 class Discriminator(nn.Module):
     def __init__(self, BaseChannels: list = [4, 8, 16, 32, 64, 128, 256],
                  cardinality: int = 2, expension: int = 2):
+
         super().__init__()
         self.BaseChannels = BaseChannels
         self.lrelu = nn.LeakyReLU(0.2, inplace=True)
@@ -108,3 +110,4 @@ class Discriminator(nn.Module):
         h = self.mb_disc(h)
         logit = self.fc(h)
         return logit.view(h.shape[0])
+

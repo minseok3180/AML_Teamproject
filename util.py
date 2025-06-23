@@ -11,6 +11,7 @@ def MSRInitializer(Layer: nn.Module, ActivationGain: float = 1.0) -> nn.Module:
         if ActivationGain == 0 or fan_in == 0: 
             weight.zero_()
         else:
+
             std = ActivationGain / math.sqrt(fan_in)
             weight.normal_(0, std)
     return Layer
@@ -38,7 +39,6 @@ class ResidualBlock(nn.Module):
 
         self.bias1 = nn.Parameter(torch.zeros(self.expanded_c))
         self.bias2 = nn.Parameter(torch.zeros(self.expanded_c))
-
         self.leaky_relu1 = nn.LeakyReLU(negative_slope=0.1, inplace=True)
         self.leaky_relu2 = nn.LeakyReLU(negative_slope=0.1, inplace=True)
 
@@ -53,7 +53,6 @@ class ResidualBlock(nn.Module):
             y = self.dropout(y)
         y = self.conv3(y)
         return x + y
-
 
 class MinibatchDiscrimination(nn.Module):
     """
@@ -84,3 +83,4 @@ class MinibatchDiscrimination(nn.Module):
             exp_sum = torch.sum(torch.exp(-diffs.sum(2)), dim=0) - 1  # exclude self
             out[i] = exp_sum
         return torch.cat([x, out], dim=1)
+
