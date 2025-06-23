@@ -9,6 +9,7 @@ results/
 *.pth
 *.npz
 *.pt
+*.log
 
 _pycache
 __pycache__
