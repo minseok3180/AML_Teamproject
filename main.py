@@ -37,6 +37,9 @@ beta2_start  = 0.9      # inital β₂
 beta2_end    = 0.99     # final β₂
 burn_in_mimg = 2.0      # Mimg
 
+# warm-up span in Mimg
+warmup_mimg  = 0.5      # warm-up over first 0.5 Mimg
+
 gamma_start = 1.0    # initial γ
 gamma_end   = 0.1    # final γ
 
@@ -80,7 +83,9 @@ def train(
     dataset_size   = len(dataloader.dataset)        # 예: 128_000
     images_seen = 0
     burn_in_images = burn_in_mimg * 1_000_000       # 2 Mimg → 2,000,000
+    warmup_images  = warmup_mimg * 1_000_000        # linear warm-up span
     burn_in_epochs = math.ceil(burn_in_images / dataset_size)
+    warmup_epochs = math.ceil(warmup_images / dataset_size)
 
     # logging
     logger = Logger(log_dir="./logs")
@@ -115,7 +120,7 @@ def train(
         clf.eval()
 
 
-    print(f"Training for {epochs} epochs (burn-in: {burn_in_epochs} epochs)...")
+    print(f"Training for {epochs} epochs (warm-up: {warmup_epochs} epochs, burn-in: {burn_in_epochs} epochs)")
     for epoch in range(epochs):
 
         if img_type == 'd1':
@@ -136,27 +141,34 @@ def train(
             real_images = real_images.to(device)
 
             images_seen += batch_size
-            t = min(images_seen, burn_in_images) / burn_in_images  # ∈ [0,1]
+            # compute scheduling parameter
+            if images_seen < warmup_images:
+                # linear warm-up
+                w = images_seen / warmup_images
+                beta2 = beta2_start + w * (beta2_end - beta2_start)
+                gamma = gamma_start + w * (gamma_end - gamma_start)
+                current_ema_hl_mimg = ema_start + w * (ema_end - ema_start)
+            else:
+                # cosine decay after warm-up
+                t = min(images_seen, burn_in_images) - warmup_images
+                t /= (burn_in_images - warmup_images)
+                beta2 = beta2_start + 0.5*(beta2_end - beta2_start)*(1 - math.cos(math.pi * t))
+                gamma = gamma_start + 0.5*(gamma_end - gamma_start)*(1 - math.cos(math.pi * t))
+                current_ema_hl_mimg = ema_start + 0.5*(ema_end - ema_start)*(1 - math.cos(math.pi * t))
 
-            
-            # beta scheduling 
-            beta2 = beta2_start + 0.5 * (beta2_end - beta2_start) * (1 - math.cos(math.pi * t))
+            # update optimizer betas
             for opt in (optimizer_G, optimizer_D):
                 for pg in opt.param_groups:
                     pg['betas'] = (0.5, beta2)
 
-            # gamma scheduling
-            gamma = gamma_start + 0.5*(gamma_end - gamma_start)*(1 - math.cos(math.pi * t))
-
-            current_ema_hl_mimg   = ema_start + 0.5*(ema_end - ema_start)*(1 - math.cos(math.pi*t))
-
-            if current_ema_hl_mimg == 0.0:
+            # compute ema decay
+            if current_ema_hl_mimg == 0:
                 ema_decay = 0.0
             else:
-                H = current_ema_hl_mimg * 1_000_000 
+                H = current_ema_hl_mimg * 1_000_000
                 ema_decay = math.exp(-math.log(2) * batch_size / H)
-        
-
+                
+    
             #######################
             # Discriminator Update
             #######################
