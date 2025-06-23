@@ -429,7 +429,7 @@ if __name__ == "__main__":
     if img_type == 'd1':
         print("Stacked MNIST data loading...")
         img_dir = "./data/mnist"
-        dataloader = load_data_StackMNIST(batch_size, img_dir, max_images=max_images,num_workers=8, pin_memory=True, persistent_workers=True)
+        dataloader = load_data_StackMNIST(batch_size, img_dir, max_images=max_images)
 
         gen_base_channels = [256, 256, 256, 256]        # for 32x32 output
         # gen_base_channels = [128, 128, 128, 128]
