@@ -2,6 +2,7 @@ import os
 import numpy as np
 import torch
 from torch.utils.data import Dataset, DataLoader, Subset
+from torch.utils.data.distributed import DistributedSampler
 from torchvision import datasets, transforms
 from PIL import Image
 import gzip
@@ -261,11 +262,16 @@ def load_data_StackMNIST(batch_size: int, img_dir: str = './data/mnist', max_ima
         max_images = 10000
     
     full_dataset = StackedMNISTDataset(img_dir, num_images=max_images, transform=transform)
-    
+
+    # DDP
+    world_size = torch.cuda.device_count()
+    local_rank = int(os.environ.get("LOCAL_RANK", 0))
+
+    sampler = DistributedSampler(full_dataset, num_replicas=world_size, rank=local_rank, shuffle=True)
     dataloader = DataLoader(
         full_dataset,
         batch_size=batch_size,
-        shuffle=True,
+        sampler = sampler,
         num_workers=2, 
         pin_memory=True, 
         drop_last=True
