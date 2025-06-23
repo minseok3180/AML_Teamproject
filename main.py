@@ -11,6 +11,7 @@ from tqdm import tqdm
 import matplotlib.pyplot as plt
 import math 
 import copy
+import pandas as pd
 
 # source code
 from dataloader import load_data_ffhq64, load_data_StackMNIST, load_data_cifar10, load_data_imagenet32
@@ -204,8 +205,20 @@ def train(
                 d_loss = discriminator_rploss(discriminator, real_images, fake_images, gamma, penalty_r1, penalty_r2) 
             else:
                 if epoch < switch_epoch:
+                    penalty_r1 = r1_penalty(discriminator, real_images)
+                    penalty_r2 = r2_penalty(discriminator, fake_images)
+                    
+                    r1_penalty_list.append(penalty_r1.item())
+                    r2_penalty_list.append(penalty_r2.item())
+                
                     d_loss = discriminator_rploss(discriminator, real_images, fake_images, gamma, penalty_r1, penalty_r2)
                 else:
+                    penalty_r1 = r1_penalty(discriminator, real_images)
+                    penalty_r2 = r2_penalty(discriminator, fake_images)
+                    
+                    r1_penalty_list.append(penalty_r1.item())
+                    r2_penalty_list.append(penalty_r2.item())
+                    
                     d_loss = discriminator_hinge_rploss(discriminator, real_images, fake_images, gamma, penalty_r1, penalty_r2)
 
             d_loss.backward() # backprop 
