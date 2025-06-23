@@ -42,7 +42,7 @@ def fid_scoring(epoch,
         img_type,
         device):
 
-    if (epoch + 1) % fid_every == 0:
+    if (epoch + 1) % fid_every == 0 and dist.get_rank() == 0:
                 torch.cuda.empty_cache()
 
                 generator.eval()
@@ -105,7 +105,9 @@ def fid_scoring(epoch,
             
                 print(f"Epoch {epoch+1:03d} | FID: {fid_value:.4f}")
 
-                shutil.rmtree(real_dir)
-                shutil.rmtree(fake_dir)
+                shutil.rmtree(real_dir, ignore_errors=True)
+                shutil.rmtree(fake_dir, ignore_errors=True)
 
-    return fid_value
+                return fid_value
+
+    return None
