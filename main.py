@@ -437,7 +437,7 @@ if __name__ == "__main__":
 
         img_name = 'Stacked MNIST'
         lr = 0.0002
-        clf_epochs = 10
+        clf_epochs = 30
         train_classifier(dataloader, clf_epochs, lr, device)
 
 
