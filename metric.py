@@ -4,6 +4,7 @@ import torch
 from torch.utils.data import Dataset, DataLoader
 import torchvision.transforms.functional as TF
 from pytorch_fid import fid_score
+import torch.distributed as dist
 
 class NFETracker:
     def __init__(self):

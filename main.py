@@ -15,6 +15,8 @@ import pandas as pd
 import numpy as np
 import torch.nn.functional as F
 from torch.cuda.amp import autocast, GradScaler
+import warnings
+import traceback 
 
 # source code
 from dataloader import load_data_ffhq64, load_data_StackMNIST, load_data_cifar10, load_data_imagenet32
@@ -51,6 +53,22 @@ gamma_end   = 0.1    # final γ
 ema_start     = 0.0      # initial half-life in Mimg
 ema_end       = 0.5      # target  half-life in Mimg
 
+def setup_directories():
+    """Create necessary directories"""
+    dirs = ['./results', './logs']
+    for dir_path in dirs:
+        try:
+            os.makedirs(dir_path, exist_ok=True)
+        except Exception as e:
+            print(f"Warning: Could not create directory {dir_path}: {e}")
+
+def is_main_process():
+    """Check if current process is the main process in DDP"""
+    try:
+        return dist.get_rank() == 0
+    except:
+        return True  # Single GPU case
+
 def train(
     generator: torch.nn.Module,
     discriminator: torch.nn.Module,
@@ -84,6 +102,8 @@ def train(
     scaler = GradScaler()
 
     ema_generator = copy.deepcopy(generator)
+    ema_generator.eval()
+
     for p in ema_generator.parameters():
         p.requires_grad_(False)
 
@@ -96,8 +116,9 @@ def train(
     warmup_epochs = math.ceil(warmup_images / dataset_size)
 
     # logging
-    logger = Logger(log_dir="./logs")
-    logger.log_initial(epochs, fid_batch_size, device, img_name)
+    logger = Logger(log_dir="./logs") if is_main_process() else None
+    if logger:
+        logger.log_initial(epochs, fid_batch_size, device, img_name)
 
     nz = 100
     torch.manual_seed(42)
@@ -120,27 +141,53 @@ def train(
     KL_divergence_list = []
     r1_penalty_list = []
     r2_penalty_list = []
-    os.makedirs('./results', exist_ok=True)
+    
+    setup_directories()
+
+    clf = None
+    mode_counts = None
+    total_samples = 0
+    coverage = 0
+    rev_kl = 0.0
     
     if img_type == 'd1':
         clf = Classifier(num_classes=1000).to(device)
-        clf.load_state_dict(torch.load('stacked_mnist_classifier/stacked_mnist_classifier.pth', map_location=device))
-        clf.eval()
 
+        classifier_path = 'stacked_mnist_classifier/stacked_mnist_classifier.pth'
+        if os.path.exists(classifier_path):
+            try: 
+                clf.load_state_dict(torch.load(classifier_path, map_location=device))
+                clf.eval()
+                if is_main_process():
+                    print(f"Loaded classifier from {classifier_path}")
+            except Exception as e:
+                if is_main_process():
+                    print(f"Error loading classifier: {e}")
+        else:
+            if is_main_process():
+                print(f"Warning: Classifier file {classifier_path} not found!")
 
-    print(f"Training for {epochs} epochs (warm-up: {warmup_epochs} epochs, burn-in: {burn_in_epochs} epochs)")
+        mode_counts = np.zeros(1000, dtype=int)
+
+    if is_main_process():
+        print(f"Training for {epochs} epochs (warm-up: {warmup_epochs} epochs, burn-in: {burn_in_epochs} epochs)")
+    
     for epoch in range(epochs):
-        if hasattr(dataloader, 'sampler'):
+        if hasattr(dataloader, 'sampler') and hasattr(dataloader.sampler, 'set_epoch'):
             dataloader.sampler.set_epoch(epoch)
 
         if img_type == 'd1':
-            mode_counts = np.zeros(1000, dtype=int)
+            mode_counts.fill(0)
             total_samples= 0
                 
         epoch_D_loss = 0.0 # one epoch - Discriminator loss
         epoch_G_loss = 0.0 # one epoch - Generator loss 
         
-        pbar = tqdm(dataloader, desc=f'Epoch {epoch+1}/{epochs}')
+        if is_main_process():
+            pbar = tqdm(dataloader, desc=f'Epoch {epoch+1}/{epochs}')
+        else:
+            pbar = dataloader
+
         for i, batch in enumerate(pbar):
             if img_type == 'd1':
                 real_images, _ = batch
@@ -183,13 +230,17 @@ def train(
             discriminator.zero_grad()
             noise = torch.randn(batch_size, nz, device=device)
 
-            fake_images = generator(noise)
+            generator.eval() 
+            with torch.no_grad():
+                fake_images = generator(noise)
+            generator.train()
 
             with autocast():
-                if img_type == 'd1':
+                if img_type == 'd1' and clf is not None:
                     with torch.no_grad():
                         logits = clf(fake_images)
                         probs  = F.softmax(logits, dim=1).cpu().numpy()
+
                     preds = probs.argmax(axis=1)
                     for c in preds:
                         mode_counts[c] += 1
@@ -263,21 +314,36 @@ def train(
             epoch_D_loss += d_loss.item()
             epoch_G_loss += g_loss.item()
             
-            pbar.set_postfix({
-                'D_loss': f'{d_loss.item():.4f}',
-                'G_loss': f'{g_loss.item():.4f}'
-            })
+            if is_main_process() and hasattr(pbar, 'set_postfix'):
+                pbar.set_postfix({
+                    'D_loss': f'{d_loss.item():.4f}',
+                    'G_loss': f'{g_loss.item():.4f}'
+                })
             
         
         avg_D_loss = epoch_D_loss / len(dataloader) # Mean Discriminator loss for one epoch 
         avg_G_loss = epoch_G_loss / len(dataloader) # Mean Generator loss for one epoch
+        # # loss -> tensor
+        # d_loss_tensor = torch.tensor(avg_D_loss, device=device)
+        # g_loss_tensor = torch.tensor(avg_G_loss, device=device)
+        # # DDP reduce
+        # dist.all_reduce(d_loss_tensor, op=dist.ReduceOp.SUM)
+        # dist.all_reduce(g_loss_tensor, op=dist.ReduceOp.SUM)
+        # #Average
+        # world_size = dist.get_world_size()
+        # avg_D_loss = d_loss_tensor.item() / world_size
+        # avg_G_loss = g_loss_tensor.item() / world_size
+        
         D_losses.append(avg_D_loss)
         G_losses.append(avg_G_loss)
         
         # Save generated image
-        if (epoch + 1) % 1 == 0 and dist.get_rank() == 0:
+        if (epoch + 1) % 1 == 0 and is_main_process():
             with torch.no_grad():
+                ema_generator.eval()
                 fake_samples = ema_generator(fixed_noise).cpu()
+                
+
                 plt.figure(figsize=(12, 12))
                 plt.axis("off")
                 plt.title(f"Generated Images - Epoch {epoch+1}")
@@ -302,18 +368,23 @@ def train(
             }, f'./results/checkpoint_epoch_{epoch+1}.pth')
 
         if img_type == 'd1':
-            counts = mode_counts  # shape (1000,)
-            total  = total_samples
-            p = counts / total            
+            if total_samples > 0:
+                counts = mode_counts  # shape (1000,)
+                total  = total_samples
+                p = counts / total            
 
-            q = np.full_like(p, 1 / p.size)
-            coverage = int((counts > 0).sum())
+                q = np.full_like(p, 1 / p.size)
+                coverage = int((counts > 0).sum())
 
-            p_theta = np.clip(p, 1e-12, None)
+                p_theta = np.clip(p, 1e-12, None)
 
-            rev_kl = float((p_theta * np.log(p_theta / q)).sum())
-            print(f"[Epoch {epoch+1}] Mode Coverage: {coverage}/1000, Reverse KL: {rev_kl:.6f}")
-            
+                rev_kl = float((p_theta * np.log(p_theta / q)).sum())
+            else:
+                coverage = 0
+                rev_kl = 0.0
+            if is_main_process():
+                print(f"[Epoch {epoch+1}] Mode Coverage: {coverage}/1000, Reverse KL: {rev_kl:.6f}")
+        
         # fid scoring
         fid_value = fid_scoring(epoch,
         fid_every, 
@@ -327,87 +398,89 @@ def train(
         device)
 
         #eval 모드에서 다시 train 모드로
-        ema_generator.train()
         generator.train()
         discriminator.train()
         
-        print(f'Epoch [{epoch+1}/{epochs}] - D_loss: {avg_D_loss:.4f}, G_loss: {avg_G_loss:.4f}')
-        print(f"Total NFE in Epoch {epoch+1}: {nfe_tracker.get_nfe()}")
+        if is_main_process():
+            print(f'Epoch [{epoch+1}/{epochs}] - D_loss: {avg_D_loss:.4f}, G_loss: {avg_G_loss:.4f}')
+            print(f"Total NFE in Epoch {epoch+1}: {nfe_tracker.get_nfe()}")
         
         Fid_list.append(fid_value)
         Mode_coverage_list.append(coverage if img_type == 'd1' else None)
         KL_divergence_list.append(rev_kl if img_type == 'd1' else None)
 
-        if img_type == 'd1':
-            logger.logd1(epoch, avg_G_loss, avg_D_loss, fid_value, coverage, rev_kl)
-        else:
-            logger.log(epoch, avg_G_loss, avg_D_loss, fid_value)
-
-    metrics = {
-        'G_losses': G_losses,
-        'D_losses': D_losses,
-        'FID': Fid_list,
-        'Mode_coverage': Mode_coverage_list,
-        'KL_divergence': KL_divergence_list,
-        'R1_penalty': r1_penalty_list,
-        'R2_penalty': r2_penalty_list,
-    }
+        if logger:
+            if img_type == 'd1':
+                logger.logd1(epoch, avg_G_loss, avg_D_loss, fid_value, coverage, rev_kl)
+            else:
+                logger.log(epoch, avg_G_loss, avg_D_loss, fid_value)
+    if is_main_process():
+        metrics = {
+            'G_losses': G_losses,
+            'D_losses': D_losses,
+            'FID': Fid_list,
+            'Mode_coverage': Mode_coverage_list,
+            'KL_divergence': KL_divergence_list,
+            'R1_penalty': r1_penalty_list,
+            'R2_penalty': r2_penalty_list,
+        }
     
-    # 각 리스트의 길이가 다를 수 있으니 pandas.Series 로 변환
-    df_metrics = pd.DataFrame({k: pd.Series(v) for k, v in metrics.items()})
-    df_metrics.to_csv('./results/training_metrics.csv', index=False)
+        # 각 리스트의 길이가 다를 수 있으니 pandas.Series 로 변환
+        df_metrics = pd.DataFrame({k: pd.Series(v) for k, v in metrics.items()})
+        df_metrics.to_csv('./results/training_metrics.csv', index=False)
 
-    # Visualize
-    plt.figure(figsize=(10, 5))
-    plt.title("Generator and Discriminator Loss During Training")
-    plt.plot(G_losses, label="G")
-    plt.plot(D_losses, label="D")
-    plt.xlabel("Epochs")
-    plt.ylabel("Loss")
-    plt.legend()
-    plt.savefig('./results/training_loss.png')
-    plt.close()
-
-    plt.figure(figsize=(10, 5))
-    plt.title("Fid During Training")
-    plt.plot(Fid_list, label="FID")
-    plt.xlabel("Epochs")
-    plt.ylabel("FID")
-    plt.legend()
-    plt.savefig('./results/training_fid.png')
-    plt.close()
-
-    if img_type == 'd1':
+        # Visualize
         plt.figure(figsize=(10, 5))
-        plt.title("Mode Coverage During Training")
-        plt.plot(Mode_coverage_list, label="Mode Coverage")
+        plt.title("Generator and Discriminator Loss During Training")
+        plt.plot(G_losses, label="G")
+        plt.plot(D_losses, label="D")
         plt.xlabel("Epochs")
-        plt.ylabel("Mode Coverage")
+        plt.ylabel("Loss")
         plt.legend()
-        plt.savefig('./results/training_mode_coverage.png')
+        plt.savefig('./results/training_loss.png')
         plt.close()
 
         plt.figure(figsize=(10, 5))
-        plt.title("Reverse KL Divergence During Training")
-        plt.plot(KL_divergence_list, label="Reverse KL Divergence")
+        plt.title("Fid During Training")
+        plt.plot(Fid_list, label="FID")
         plt.xlabel("Epochs")
-        plt.ylabel("Value")
+        plt.ylabel("FID")
         plt.legend()
-        plt.savefig('./results/training_kl.png')
+        plt.savefig('./results/training_fid.png')
         plt.close()
-        
-        plt.figure(figsize=(10,5))
-        plt.plot(r1_penalty_list, label="R1 penalty")
-        plt.plot(r2_penalty_list, label="R2 penalty")
-        plt.xlabel("Iteration")
-        plt.ylabel("Penalty value")
-        plt.legend()
-        plt.tight_layout()
-        plt.savefig("./results/penalties.png")
-        plt.close()
-    if dist.get_rank() == 0:
+
+        if img_type == 'd1':
+            plt.figure(figsize=(10, 5))
+            plt.title("Mode Coverage During Training")
+            plt.plot(Mode_coverage_list, label="Mode Coverage")
+            plt.xlabel("Epochs")
+            plt.ylabel("Mode Coverage")
+            plt.legend()
+            plt.savefig('./results/training_mode_coverage.png')
+            plt.close()
+
+            plt.figure(figsize=(10, 5))
+            plt.title("Reverse KL Divergence During Training")
+            plt.plot(KL_divergence_list, label="Reverse KL Divergence")
+            plt.xlabel("Epochs")
+            plt.ylabel("Value")
+            plt.legend()
+            plt.savefig('./results/training_kl.png')
+            plt.close()
+            
+            plt.figure(figsize=(10,5))
+            plt.plot(r1_penalty_list, label="R1 penalty")
+            plt.plot(r2_penalty_list, label="R2 penalty")
+            plt.xlabel("Iteration")
+            plt.ylabel("Penalty value")
+            plt.legend()
+            plt.tight_layout()
+            plt.savefig("./results/penalties.png")
+            plt.close()
+    
         print("Finished Training!")
-        logger.log_final(epochs, avg_G_loss, avg_D_loss, fid_value)
+        if logger:
+            logger.log_final(epochs, avg_G_loss, avg_D_loss, fid_value)
 
 
 if __name__ == "__main__":
@@ -420,17 +493,28 @@ if __name__ == "__main__":
     dataset 4 : ImageNet-32
     '''
 
+
+    #DDP 초기화
+    if 'WORLD_SIZE' in os.environ:
+        dist.init_process_group(backend="nccl", init_method="env://")
+        local_rank = int(os.environ["LOCAL_RANK"])
+        torch.cuda.set_device(local_rank)
+        device = torch.device(f"cuda:{local_rank}")
+        print(f"Initialized DDP on rank {dist.get_rank()}/{dist.get_world_size()}")
+    else:
+        # Single GPU case
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        print(f"Running on single device: {device}")
+
+   
     img_type = 'd1'
     batch_size = 128
     max_images = 128000
-
-
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    
-    
+ 
 
     if img_type == 'd1':
-        print("Stacked MNIST data loading...")
+        if is_main_process():
+            print("Stacked MNIST data loading...")
         img_dir = "./data/mnist"
         dataloader = load_data_StackMNIST(batch_size, img_dir, max_images=max_images)
 
@@ -441,11 +525,14 @@ if __name__ == "__main__":
         img_name = 'Stacked MNIST'
         lr = 0.0002
         clf_epochs = 30
-        train_classifier(dataloader, clf_epochs, lr, device)
+
+        if is_main_process():
+            train_classifier(dataloader, clf_epochs, lr, device)
 
 
     elif img_type == 'd2' : 
-        print("FFHQ64 data loading...")
+        if is_main_process():
+            print("FFHQ64 data loading...")
         tfrecord_dir = "./data/ffhq64"  # Point to the tfrecord directory
         dataloader = load_data_ffhq64(batch_size, max_images=max_images)
         gen_base_channels = [128, 256, 256, 256, 256]
@@ -457,7 +544,8 @@ if __name__ == "__main__":
 
 
     elif img_type == 'd3' : 
-        print("cifar-10 data loading...")
+        if is_main_process():
+            print("cifar-10 data loading...")
         img_dir = "./data/cifar-10"
         dataloader = load_data_cifar10(batch_size, img_dir, max_images=max_images)
         gen_base_channels = [256, 128, 64, 32]        # for 32x32 output 
@@ -470,7 +558,8 @@ if __name__ == "__main__":
 
 
     elif img_type == 'd4':
-        print("ImageNet-32 data loading...")
+        if is_main_process():
+            print("ImageNet-32 data loading...")
         img_dir = "./data/imagenet32"
         dataloader = load_data_imagenet32(batch_size, img_dir, max_images=max_images)
         gen_base_channels = [1536, 1536, 1536, 1536]        # for 32x32 output 
@@ -486,23 +575,17 @@ if __name__ == "__main__":
     # Discriminator channels: reverse of generator
     disc_base_channels = list(reversed(gen_base_channels))
     
-    
-    print("############################### model generating ###############################")
-    print(f"max images : {max_images} --- dataset size: {len(dataloader.dataset)}")
+    if is_main_process():
+        print("############################### model generating ###############################")
+        print(f"max images : {max_images} --- dataset size: {len(dataloader.dataset)}")
+
+
     G = Generator(BaseChannels=gen_base_channels).to(device)
     D = Discriminator(BaseChannels=disc_base_channels).to(device)
-
-    #DDP
-    dist.init_process_group(backend="nccl", init_method="env://")
-
-    local_rank = int(os.environ["LOCAL_RANK"])
-    torch.cuda.set_device(local_rank)
-    device = torch.device(f"cuda:{local_rank}")
-
-    G = G.to(device)
-    D = D.to(device)
-    G = DDP(G, device_ids=[local_rank], output_device=local_rank)
-    D = DDP(D, device_ids=[local_rank], output_device=local_rank)
+    
+    if 'WORLD_SIZE' in os.environ:
+        G = DDP(G, device_ids=[local_rank], output_device=local_rank)
+        D = DDP(D, device_ids=[local_rank], output_device=local_rank)
 
     G.train()
     D.train()
@@ -510,14 +593,13 @@ if __name__ == "__main__":
     def count_parameters(model):
         return sum(p.numel() for p in model.parameters() if p.requires_grad)
     
-    print(f"Generator parameter: {count_parameters(G):,}")
-    print(f"Discriminator parameter: {count_parameters(D):,}")
-
-
-    print(f'Using device : {device}')
-    print(f'epoch : {epochs}')
-    print(f'batch size : {batch_size}')
-    print(f'learning rate : {lr}')
+    if is_main_process():
+        print(f"Generator parameter: {count_parameters(G):,}")
+        print(f"Discriminator parameter: {count_parameters(D):,}")
+        print(f'Using device : {device}')
+        print(f'epoch : {epochs}')
+        print(f'batch size : {batch_size}')
+        print(f'learning rate : {lr}')
 
 
     
