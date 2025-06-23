@@ -155,8 +155,7 @@ def train(
             else:
                 H = current_ema_hl_mimg * 1_000_000 
                 ema_decay = math.exp(-math.log(2) * batch_size / H)
-            
-            print(gamma, beta2, ema_decay)
+        
 
             #######################
             # Discriminator Update
@@ -379,8 +378,8 @@ if __name__ == "__main__":
     '''
 
     img_type = 'd1'
-    batch_size = 256
-    max_images = 10000
+    batch_size = 512
+    max_images = 128000
 
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -390,15 +389,15 @@ if __name__ == "__main__":
     if img_type == 'd1':
         print("Stacked MNIST data loading...")
         img_dir = "./data/mnist"
-        dataloader = load_data_StackMNIST(batch_size, img_dir, max_images=max_images)
+        dataloader = load_data_StackMNIST(batch_size, img_dir, max_images=max_images,num_workers=8, pin_memory=True, persistent_workers=True)
 
-        # gen_base_channels = [256, 256, 256, 256]        # for 32x32 output
-        gen_base_channels = [128, 128, 128, 128]
+        gen_base_channels = [256, 256, 256, 256]        # for 32x32 output
+        # gen_base_channels = [128, 128, 128, 128]
 
 
         img_name = 'Stacked MNIST'
         lr = 0.0002
-        clf_epochs = 3 
+        clf_epochs = 3
         train_classifier(dataloader, clf_epochs, lr, device)
 
 
