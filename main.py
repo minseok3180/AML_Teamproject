@@ -335,16 +335,6 @@ def train(
     plt.savefig('./results/training_fid.png')
     plt.close()
 
-    plt.figure(figsize=(8,4))
-    plt.plot(r1_penalty_list, label="R1 penalty")
-    plt.plot(r2_penalty_list, label="R2 penalty")
-    plt.xlabel("Iteration")
-    plt.ylabel("Penalty value")
-    plt.legend()
-    plt.tight_layout()
-    plt.savefig("./results/penalties.png")
-    plt.close()
-
     if img_type == 'd1':
         plt.figure(figsize=(10, 5))
         plt.title("Mode Coverage During Training")
@@ -363,7 +353,16 @@ def train(
         plt.legend()
         plt.savefig('./results/training_kl.png')
         plt.close()
-
+        
+        plt.figure(figsize=(10,5))
+        plt.plot(r1_penalty_list, label="R1 penalty")
+        plt.plot(r2_penalty_list, label="R2 penalty")
+        plt.xlabel("Iteration")
+        plt.ylabel("Penalty value")
+        plt.legend()
+        plt.tight_layout()
+        plt.savefig("./results/penalties.png")
+        plt.close()
     
     print("Finished Training!")
     logger.log_final(epochs, avg_G_loss, avg_D_loss, fid_value)
