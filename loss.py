@@ -48,7 +48,7 @@ def r2_penalty(discriminator, fake_images):
     return penalty
 
 
-def discriminator_rploss(discriminator, real_images, fake_images, gamma, r1_penalty, r2_penalty):
+def discriminator_rploss(discriminator, real_images, fake_images, gamma, penalty_r1, penalty_r2):
     # 기본 RPLoss
     real_logits = discriminator(real_images).view(-1)               # (B,)
     fake_logits = discriminator(fake_images.detach()).view(-1)     # (B,)
@@ -65,7 +65,7 @@ def generator_rploss(discriminator, real_images, fake_images):
     return nn.functional.softplus(-diff).mean()
 
 
-def discriminator_hinge_rploss(discriminator, real_images, fake_images, gamma, r1_penalty, r2_penalty, margin: float = 1.0):
+def discriminator_hinge_rploss(discriminator, real_images, fake_images, gamma, penalty_r1, penalty_r2, margin: float = 1.0):
     real_logits = discriminator(real_images).view(-1)
     fake_logits = discriminator(fake_images.detach()).view(-1)
     diff = real_logits - fake_logits
