@@ -5,6 +5,7 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader, Subset
 from torch.nn.parallel import DistributedDataParallel as DDP
+import torch.distributed as dist
 import os
 from tqdm import tqdm
 import matplotlib.pyplot as plt
@@ -194,12 +195,18 @@ def train(
             
             # Discriminator loss
             if not switch_loss:
-                d_loss = discriminator_rploss(discriminator, real_images, fake_images, gamma) 
+                penalty_r1 = r1_penalty(discriminator, real_images)
+                penalty_r2 = r2_penalty(discriminator, fake_images)
+                
+                r1_penalty_list.append(penalty_r1.item())
+                r2_penalty_list.append(penalty_r2.item())
+                
+                d_loss = discriminator_rploss(discriminator, real_images, fake_images, gamma, penalty_r1, penalty_r2) 
             else:
                 if epoch < switch_epoch:
-                    d_loss = discriminator_rploss(discriminator, real_images, fake_images, gamma)
+                    d_loss = discriminator_rploss(discriminator, real_images, fake_images, gamma, penalty_r1, penalty_r2)
                 else:
-                    d_loss = discriminator_hinge_rploss(discriminator, real_images, fake_images, gamma)
+                    d_loss = discriminator_hinge_rploss(discriminator, real_images, fake_images, gamma, penalty_r1, penalty_r2)
 
             d_loss.backward() # backprop 
             optimizer_D.step() # parameter update 
@@ -250,7 +257,6 @@ def train(
         avg_G_loss = epoch_G_loss / len(dataloader) # Mean Generator loss for one epoch
         D_losses.append(avg_D_loss)
         G_losses.append(avg_G_loss)
-
         
         # Save generated image
         if (epoch + 1) % 1 == 0 and dist.get_rank() == 0:
@@ -320,6 +326,20 @@ def train(
             logger.logd1(epoch, avg_G_loss, avg_D_loss, fid_value, coverage, rev_kl)
         else:
             logger.log(epoch, avg_G_loss, avg_D_loss, fid_value)
+
+    metrics = {
+        'G_losses': G_losses,
+        'D_losses': D_losses,
+        'FID': Fid_list,
+        'Mode_coverage': Mode_coverage_list,
+        'KL_divergence': KL_divergence_list,
+        'R1_penalty': r1_penalty_list,
+        'R2_penalty': r2_penalty_list,
+    }
+    
+    # 각 리스트의 길이가 다를 수 있으니 pandas.Series 로 변환
+    df_metrics = pd.DataFrame({k: pd.Series(v) for k, v in metrics.items()})
+    df_metrics.to_csv('./results/training_metrics.csv', index=False)
 
     # Visualize
     plt.figure(figsize=(10, 5))
