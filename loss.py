@@ -4,7 +4,7 @@ import torch.nn as nn
 
 def r1_penalty(discriminator, real_images):
     # 1) leaf tensor 분리 후 gradient 계산 허용
-    real_images = real_images.clone().detach().requires_grad_(True)  # (B, C, H, W)
+    real_images = real_images.requires_grad_(True)  # (B, C, H, W)
 
     # 2) discriminator 출력 얻고 스칼라로 변환
     real_logits = discriminator(real_images).view(-1)  # (B,)
@@ -27,7 +27,7 @@ def r1_penalty(discriminator, real_images):
 
 def r2_penalty(discriminator, fake_images):
     # 1) leaf tensor 분리 후 gradient 계산 허용
-    fake_images = fake_images.clone().detach().requires_grad_(True)  # (B, C, H, W)
+    fake_images = fake_images.requires_grad_(True)  # (B, C, H, W)
 
     # 2) discriminator 출력 얻고 스칼라로 변환
     fake_logits = discriminator(fake_images).view(-1)  # (B,)
