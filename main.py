@@ -12,6 +12,9 @@ import matplotlib.pyplot as plt
 import math 
 import copy
 import pandas as pd
+import numpy as np
+import torch.nn.functional as F
+from torch.cuda.amp import autocast, GradScaler
 
 # source code
 from dataloader import load_data_ffhq64, load_data_StackMNIST, load_data_cifar10, load_data_imagenet32
@@ -20,8 +23,7 @@ from metric import fid_scoring, NFETracker
 from logger import Logger 
 from train_classifier import Classifier, train_classifier
 
-import numpy as np
-import torch.nn.functional as F
+
 
 # Change mhsa
 use_mhsa = False
@@ -78,12 +80,15 @@ def train(
     optimizer_G = optim.Adam(generator.parameters(), lr=lr, betas=(0.5, beta2_start))
     optimizer_D = optim.Adam(discriminator.parameters(), lr=lr, betas=(0.5, beta2_start))
 
+    # implement AMP
+    scaler = GradScaler()
+
     ema_generator = copy.deepcopy(generator)
     for p in ema_generator.parameters():
         p.requires_grad_(False)
 
     # for burn-in 
-    dataset_size   = len(dataloader.dataset)        # 예: 128_000
+    dataset_size   = len(dataloader.dataset)        
     images_seen = 0
     burn_in_images = burn_in_mimg * 1_000_000       # 2 Mimg → 2,000,000
     warmup_images  = warmup_mimg * 1_000_000        # linear warm-up span
@@ -96,7 +101,7 @@ def train(
 
     nz = 100
     torch.manual_seed(42)
-    fixed_noise = torch.randn(16, nz, device=device) # Every 50 epochs, feed the same noise into the Generator and compare the generated images.
+    fixed_noise = torch.randn(16, nz, device=device) 
     
     # Fid Setting
     real_dataset = dataloader.dataset
@@ -167,62 +172,59 @@ def train(
                     pg['betas'] = (0.5, beta2)
 
             # compute ema decay
-            if current_ema_hl_mimg == 0:
-                ema_decay = 0.0
-            else:
-                H = current_ema_hl_mimg * 1_000_000
-                ema_decay = math.exp(-math.log(2) * batch_size / H)
+            H = current_ema_hl_mimg * 1_000_000
+            ema_decay = math.exp(-math.log(2) * batch_size / H) if H > 0 else 0.0
                 
     
             #######################
             # Discriminator Update
             #######################
 
-            # gradient initialize 
             discriminator.zero_grad()
-            
-            # noise fake images generate
             noise = torch.randn(batch_size, nz, device=device)
+
             fake_images = generator(noise)
 
-            if img_type == 'd1':
-                with torch.no_grad():
-                    logits = clf(fake_images)
-                    probs  = F.softmax(logits, dim=1).cpu().numpy()
-                preds = probs.argmax(axis=1)
-                for c in preds:
-                    mode_counts[c] += 1
-                total_samples += batch_size
-            
-            # Discriminator loss
-            if not switch_loss:
-                penalty_r1 = r1_penalty(discriminator, real_images)
-                penalty_r2 = r2_penalty(discriminator, fake_images)
+            with autocast():
+                if img_type == 'd1':
+                    with torch.no_grad():
+                        logits = clf(fake_images)
+                        probs  = F.softmax(logits, dim=1).cpu().numpy()
+                    preds = probs.argmax(axis=1)
+                    for c in preds:
+                        mode_counts[c] += 1
+                    total_samples += batch_size
                 
-                r1_penalty_list.append(penalty_r1.item())
-                r2_penalty_list.append(penalty_r2.item())
-                
-                d_loss = discriminator_rploss(discriminator, real_images, fake_images, gamma, penalty_r1, penalty_r2) 
-            else:
-                if epoch < switch_epoch:
+                # Discriminator loss
+                if not switch_loss:
                     penalty_r1 = r1_penalty(discriminator, real_images)
                     penalty_r2 = r2_penalty(discriminator, fake_images)
                     
                     r1_penalty_list.append(penalty_r1.item())
                     r2_penalty_list.append(penalty_r2.item())
-                
-                    d_loss = discriminator_rploss(discriminator, real_images, fake_images, gamma, penalty_r1, penalty_r2)
+                    
+                    d_loss = discriminator_rploss(discriminator, real_images, fake_images, gamma, penalty_r1, penalty_r2) 
                 else:
-                    penalty_r1 = r1_penalty(discriminator, real_images)
-                    penalty_r2 = r2_penalty(discriminator, fake_images)
+                    if epoch < switch_epoch:
+                        penalty_r1 = r1_penalty(discriminator, real_images)
+                        penalty_r2 = r2_penalty(discriminator, fake_images)
+                        
+                        r1_penalty_list.append(penalty_r1.item())
+                        r2_penalty_list.append(penalty_r2.item())
                     
-                    r1_penalty_list.append(penalty_r1.item())
-                    r2_penalty_list.append(penalty_r2.item())
-                    
-                    d_loss = discriminator_hinge_rploss(discriminator, real_images, fake_images, gamma, penalty_r1, penalty_r2)
+                        d_loss = discriminator_rploss(discriminator, real_images, fake_images, gamma, penalty_r1, penalty_r2)
+                    else:
+                        penalty_r1 = r1_penalty(discriminator, real_images)
+                        penalty_r2 = r2_penalty(discriminator, fake_images)
+                        
+                        r1_penalty_list.append(penalty_r1.item())
+                        r2_penalty_list.append(penalty_r2.item())
+                        
+                        d_loss = discriminator_hinge_rploss(discriminator, real_images, fake_images, gamma, penalty_r1, penalty_r2)
 
-            d_loss.backward() # backprop 
-            optimizer_D.step() # parameter update 
+            scaler.scale(d_loss).backward()
+            scaler.step(optimizer_D)
+            scaler.update()
             
 
             ###################
@@ -234,27 +236,28 @@ def train(
             
             # noise fake images generate
             noise = torch.randn(batch_size, nz, device=device)
-            fake_images = generator(noise)
-            
-            # Generator loss 
-            if not switch_loss:
-                g_loss = generator_rploss(discriminator, real_images, fake_images)
-            else:
-                if epoch < switch_epoch:  #switch_epoch: epochs / 2
+            with autocast():
+                fake_images = generator(noise)
+                
+                # Generator loss 
+                if not switch_loss:
                     g_loss = generator_rploss(discriminator, real_images, fake_images)
                 else:
-                    g_loss = generator_hinge_rploss(discriminator, real_images, fake_images)
+                    if epoch < switch_epoch:  #switch_epoch: epochs / 2
+                        g_loss = generator_rploss(discriminator, real_images, fake_images)
+                    else:
+                        g_loss = generator_hinge_rploss(discriminator, real_images, fake_images)
             
             nfe_tracker.increment()
+            scaler.scale(g_loss).backward()
+            scaler.step(optimizer_G)
+            scaler.update()
 
-            g_loss.backward() # backprop
-            optimizer_G.step() # parameter update 
 
             # EMA
             with torch.no_grad():
                for p_ema, p in zip(ema_generator.parameters(), generator.parameters()):
                    p_ema.data.mul_(ema_decay).add_(p.data * (1.0 - ema_decay))
-
             
             # Loss
             epoch_D_loss += d_loss.item()
@@ -462,6 +465,9 @@ if __name__ == "__main__":
         img_name = 'CIFAR-10'
         lr = 0.0002
         
+
+
+
 
     elif img_type == 'd4':
         print("ImageNet-32 data loading...")
