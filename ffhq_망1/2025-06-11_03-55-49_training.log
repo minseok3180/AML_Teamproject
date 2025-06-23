@@ -1,5 +1,0 @@
-2025-06-11 04:24:54,195 - Epoch [0], train G_Loss: 3.3107, train D_Loss: 0.4293, FID: 445.7179
-2025-06-11 04:54:04,731 - Epoch [1], train G_Loss: 7.3999, train D_Loss: 0.0557, FID: 415.2041
-2025-06-11 05:23:24,639 - Epoch [2], train G_Loss: 8.1149, train D_Loss: 0.0039, FID: 449.8245
-2025-06-11 05:52:24,978 - Epoch [3], train G_Loss: 8.4155, train D_Loss: 0.0025, FID: 457.0524
-2025-06-11 06:21:45,910 - Epoch [4], train G_Loss: 8.5941, train D_Loss: 0.0020, FID: 459.6322

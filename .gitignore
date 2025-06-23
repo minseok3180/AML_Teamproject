@@ -1,6 +1,8 @@
 # This is a gitignore file for a project using the ffhq256 dataset
 # Ignore all files in the ffhq256 directory
 data/
+logs/
+results/
 *.png
 *.jpg
 *.jpeg
