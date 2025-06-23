@@ -1,0 +1,13 @@
+2025-06-18 09:02:44,367 - Stacked MNIST parameter setting
+2025-06-18 09:02:44,367 - Epoch : 25, batch size : 128, r1 lambda : 10, r2 lambda : 10, 
+2025-06-18 09:02:44,367 - ################ Training Start ################
+2025-06-18 09:02:44,367 - Stacked MNIST parameter setting
+2025-06-18 09:02:44,367 - Stacked MNIST parameter setting
+2025-06-18 09:02:44,368 - Epoch : 25, batch size : 128, r1 lambda : 10, r2 lambda : 10, 
+2025-06-18 09:02:44,368 - ################ Training Start ################
+2025-06-18 09:02:44,368 - Epoch : 25, batch size : 128, r1 lambda : 10, r2 lambda : 10, 
+2025-06-18 09:02:44,368 - ################ Training Start ################
+2025-06-18 09:02:44,374 - Stacked MNIST parameter setting
+2025-06-18 09:02:44,374 - Epoch : 25, batch size : 128, r1 lambda : 10, r2 lambda : 10, 
+2025-06-18 09:02:44,374 - ################ Training Start ################
+2025-06-18 09:10:35,826 - Epoch [0], train G_Loss: 2.5733, train D_Loss: 3.3669, FID: 470.7192

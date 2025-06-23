@@ -2,109 +2,87 @@ import torch
 from torch import autograd
 import torch.nn as nn
 
+def r1_penalty(discriminator, real_images):
+    # 1) leaf tensor 분리 후 gradient 계산 허용
+    real_images = real_images.clone().detach().requires_grad_(True)  # (B, C, H, W)
 
-def r1_penalty(discriminator, real_images, r1_lambda):
-    # if we do not use r1 penalty -> return 0
-    if r1_lambda <= 0.0:
-        return torch.tensor(0.0, device=real_images.device)
+    # 2) discriminator 출력 얻고 스칼라로 변환
+    real_logits = discriminator(real_images).view(-1)  # (B,)
+    loss_real = real_logits.sum()
 
-    real_images.requires_grad_(True) # To calculate gradient. real images shape: (B, C, H, W)
-    real_logits = discriminator(real_images).view(-1) # (B, 1) -> (B,)
-
-    grads_real = autograd.grad(
-        outputs=real_logits.sum(), # outputs argument should be scalar. Calculate the gradient of Discriminator logit each sample.
+    # 3) gradient 계산
+    grads = autograd.grad(
+        outputs=loss_real,
         inputs=real_images,
         create_graph=True,
-        retain_graph=True,
-        only_inputs=True
-    )[0] # inputs is a single real_images → store the first element of the tuple in grads. grads shape: (B, C, H, W)
+        retain_graph=True
+    )[0]  # (B, C, H, W)
 
-    grads_real = grads_real.view(grads_real.size(0), -1)  # (B, C, H, W) -> (B, C*H*W)
-    grads_real_norm2 = torch.sum(grads_real ** 2, dim=1)  # sum along the tensor’s second dimension, (B, C*H*W) -> (B,)
-    r1_penalty = 0.5 * r1_lambda * torch.mean(grads_real_norm2)
-
-    #real_images.requires_grad_(False)
-
-    return r1_penalty
+    # 4) penalty 계산
+    grads = grads.view(grads.size(0), -1)                   # (B, C*H*W)
+    grads_norm2 = torch.sum(grads ** 2, dim=1)            # (B,)
+    penalty = torch.mean(grads_norm2)
+    return penalty
 
 
-def r2_penalty(discriminator, fake_images, r2_lambda):
-    # if we do not use r2 penalty -> return 0 
-    if r2_lambda <= 0.0:
-        return torch.tensor(0.0, device=fake_images.device)
+def r2_penalty(discriminator, fake_images):
+    # 1) leaf tensor 분리 후 gradient 계산 허용
+    fake_images = fake_images.clone().detach().requires_grad_(True)  # (B, C, H, W)
 
-    fake_images.requires_grad_(True) # To calculate gradient. fake images shape: (B, C, H, W)
-    fake_logits = discriminator(fake_images).view(-1) # (B, 1) -> (B,)
+    # 2) discriminator 출력 얻고 스칼라로 변환
+    fake_logits = discriminator(fake_images).view(-1)  # (B,)
+    loss_fake = fake_logits.sum()
 
-    grads_fake = autograd.grad(
-        outputs=fake_logits.sum(), # outputs argument should be scalar. Calculate the gradient of Discriminator logit each sample.
+    # 3) gradient 계산
+    grads = autograd.grad(
+        outputs=loss_fake,
         inputs=fake_images,
         create_graph=True,
-        retain_graph=True,
-        only_inputs=True
-    )[0] # inputs is a single fake_images → store the first element of the tuple in grads. grads shape: (B, C, H, W)
+        retain_graph=True
+    )[0]  # (B, C, H, W)
 
-    grads_fake = grads_fake.view(grads_fake.size(0), -1)  # (B, C, H, W) -> (B, C*H*W)
-    grads_fake_norm2 = torch.sum(grads_fake ** 2, dim=1)  # sum along the tensor’s second dimension, (B, C*H*W) -> (B,)
-    r2_penalty = 0.5 * r2_lambda * torch.mean(grads_fake_norm2)
-
-    #fake_images.requires_grad_(False)
-
-    return r2_penalty
+    # 4) penalty 계산
+    grads = grads.view(grads.size(0), -1)                   # (B, C*H*W)
+    grads_norm2 = torch.sum(grads ** 2, dim=1)            # (B,)
+    penalty = torch.mean(grads_norm2)
+    return penalty
 
 
-def discriminator_rploss(discriminator, real_images, fake_images, r1_lambda, r2_lambda):
-    real_logits = discriminator(real_images).view(-1) # (B, 1) -> (B,)
-    fake_logits = discriminator(fake_images.detach()).view(-1)  # (B, 1) -> (B,), Block gradient propagation to the Generator using detach()
+def discriminator_rploss(discriminator, real_images, fake_images, gamma):
+    # 기본 RPLoss
+    real_logits = discriminator(real_images).view(-1)               # (B,)
+    fake_logits = discriminator(fake_images.detach()).view(-1)     # (B,)
+    diff = real_logits - fake_logits
+    d_rploss = nn.functional.softplus(-diff).mean()
 
-    diff_real_fake = real_logits - fake_logits # Discriminator wants to make this value large
-    d_rploss = nn.functional.softplus(-diff_real_fake).mean()
+    # gradient penalties
+    penalty_r1 = r1_penalty(discriminator, real_images)
+    penalty_r2 = r2_penalty(discriminator, fake_images)
 
-    penalty_r1 = r1_penalty(discriminator, real_images, r1_lambda)
-    penalty_r2 = r2_penalty(discriminator, fake_images, r2_lambda)
-
-    final_d_loss = d_rploss + penalty_r1 + penalty_r2
-
-    return final_d_loss
+    return d_rploss + (gamma / 2) * (penalty_r1 + penalty_r2)
 
 
 def generator_rploss(discriminator, real_images, fake_images):
-    real_logits = discriminator(real_images.detach()).view(-1)  # (B, 1) -> (B,), Block gradient propagation to the Discriminator using detach()
-    fake_logits = discriminator(fake_images).view(-1)  # (B, 1) -> (B,)
-
-    diff_fake_real = fake_logits - real_logits # Generator wants to make this value large
-    final_g_loss = nn.functional.softplus(-diff_fake_real).mean()
-    
-    return final_g_loss
+    real_logits = discriminator(real_images.detach()).view(-1)  # (B,)
+    fake_logits = discriminator(fake_images).view(-1)           # (B,)
+    diff = fake_logits - real_logits
+    return nn.functional.softplus(-diff).mean()
 
 
-# idea : rploss + hinge loss 
-def discriminator_hinge_rploss(discriminator, real_images, fake_images, r1_lambda, r2_lambda, margin: float = 1.0):
+def discriminator_hinge_rploss(discriminator, real_images, fake_images, gamma, margin: float = 1.0):
     real_logits = discriminator(real_images).view(-1)
     fake_logits = discriminator(fake_images.detach()).view(-1)
+    diff = real_logits - fake_logits
+    d_hinge = nn.functional.relu(margin - diff).mean()
 
-    diff_real_fake = real_logits - fake_logits
+    penalty_r1 = r1_penalty(discriminator, real_images)
+    penalty_r2 = r2_penalty(discriminator, fake_images)
 
-    # Check if the real logits are higher than the fake logits by margin, and if it is insufficient, treat the difference as a loss
-    d_hinge_rploss = nn.functional.relu(margin - diff_real_fake).mean()  # max(0, m - (r - f))
-  
-    penalty_r1 = r1_penalty(discriminator, real_images, r1_lambda)
-    penalty_r2 = r2_penalty(discriminator, fake_images, r2_lambda)
-
-    final_d_loss = d_hinge_rploss + penalty_r1 + penalty_r2
-
-    return final_d_loss 
+    return d_hinge + (gamma / 2) * (penalty_r1 + penalty_r2)
 
 
 def generator_hinge_rploss(discriminator, real_images, fake_images, margin: float = 1.0):
     real_logits = discriminator(real_images.detach()).view(-1)
     fake_logits = discriminator(fake_images).view(-1)
-
-    diff_fake_real = fake_logits - real_logits
-
-    # Check if the fake logits are higher than the real logits by margin, and if it is insufficient, treat the difference as a loss
-    g_hinge_rploss = nn.functional.relu(margin - diff_fake_real).mean()  # max(0, m - (f - r))
- 
-    final_g_loss = g_hinge_rploss 
-
-    return final_g_loss
+    diff = fake_logits - real_logits
+    return nn.functional.relu(margin - diff).mean()

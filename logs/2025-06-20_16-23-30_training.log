@@ -1,0 +1,18 @@
+2025-06-20 16:23:30,690 - Stacked MNIST parameter setting
+2025-06-20 16:23:30,690 - Epoch : 25, batch size : 512, r1 lambda : 10, r2 lambda : 10, 
+2025-06-20 16:23:30,691 - ################ Training Start ################
+2025-06-20 16:45:08,124 - Epoch [0], train G_Loss: 4.3313, train D_Loss: 18.3869, FID: 443.8199
+2025-06-20 17:06:30,065 - Epoch [1], train G_Loss: 2.7576, train D_Loss: 1023102.0578, FID: 443.4847
+2025-06-20 17:27:52,644 - Epoch [2], train G_Loss: 3.6580, train D_Loss: 331.8661, FID: 443.4981
+2025-06-20 17:49:17,321 - Epoch [3], train G_Loss: 4.1773, train D_Loss: 333.7926, FID: 443.4476
+2025-06-20 18:10:38,726 - Epoch [4], train G_Loss: 4.1680, train D_Loss: 27.5912, FID: 443.4514
+2025-06-20 18:31:58,892 - Epoch [5], train G_Loss: 4.0458, train D_Loss: 35.6025, FID: 443.4539
+2025-06-20 18:53:18,587 - Epoch [6], train G_Loss: 4.0179, train D_Loss: 70.6459, FID: 443.4448
+2025-06-20 19:14:39,029 - Epoch [7], train G_Loss: 4.0200, train D_Loss: 17.9602, FID: 443.4493
+2025-06-20 19:36:01,827 - Epoch [8], train G_Loss: 4.0104, train D_Loss: 2.7774, FID: 443.4381
+2025-06-20 19:57:19,913 - Epoch [9], train G_Loss: 4.0161, train D_Loss: 0.4006, FID: 443.4269
+2025-06-20 20:18:40,304 - Epoch [10], train G_Loss: 4.0109, train D_Loss: 0.4330, FID: 443.4068
+2025-06-20 20:40:03,438 - Epoch [11], train G_Loss: 4.0077, train D_Loss: 0.4762, FID: 443.3826
+2025-06-20 21:01:24,992 - Epoch [12], train G_Loss: 4.0494, train D_Loss: 0.5186, FID: 443.3642
+2025-06-20 21:22:45,499 - Epoch [13], train G_Loss: 4.2009, train D_Loss: 0.5485, FID: 443.3538
+2025-06-20 21:44:07,797 - Epoch [14], train G_Loss: 4.4650, train D_Loss: 0.5461, FID: 443.3529

@@ -1,0 +1,27 @@
+2025-06-09 07:23:58,028 - Epoch [0], train G_Loss: 3.9084, train D_Loss: 0.2952, FID: 415.6759
+2025-06-09 07:48:20,667 - Epoch [1], train G_Loss: 1.6260, train D_Loss: 0.5400, FID: 320.2842
+2025-06-09 08:12:41,869 - Epoch [2], train G_Loss: 1.1520, train D_Loss: 0.5783, FID: 318.5391
+2025-06-09 08:37:03,508 - Epoch [3], train G_Loss: 1.1208, train D_Loss: 0.5984, FID: 330.7523
+2025-06-09 09:01:23,368 - Epoch [4], train G_Loss: 1.0577, train D_Loss: 0.6052, FID: 305.4544
+2025-06-09 09:25:43,468 - Epoch [5], train G_Loss: 1.0067, train D_Loss: 0.6169, FID: 259.8322
+2025-06-09 09:50:04,200 - Epoch [6], train G_Loss: 0.9419, train D_Loss: 0.6309, FID: 254.5766
+2025-06-09 10:14:25,291 - Epoch [7], train G_Loss: 0.9824, train D_Loss: 0.6204, FID: 298.2280
+2025-06-09 10:38:46,259 - Epoch [8], train G_Loss: 0.9171, train D_Loss: 0.6341, FID: 264.2883
+2025-06-09 11:03:07,397 - Epoch [9], train G_Loss: 0.8422, train D_Loss: 0.6527, FID: 262.4560
+2025-06-09 11:27:28,290 - Epoch [10], train G_Loss: 0.8303, train D_Loss: 0.6577, FID: 295.5149
+2025-06-09 11:51:48,595 - Epoch [11], train G_Loss: 0.8246, train D_Loss: 0.6611, FID: 308.9293
+2025-06-09 12:16:09,353 - Epoch [12], train G_Loss: 0.8112, train D_Loss: 0.6627, FID: 237.6154
+2025-06-09 12:40:29,878 - Epoch [13], train G_Loss: 0.7992, train D_Loss: 0.6669, FID: 297.3694
+2025-06-09 13:04:49,490 - Epoch [14], train G_Loss: 0.7999, train D_Loss: 0.6675, FID: 262.2115
+2025-06-09 13:29:09,239 - Epoch [15], train G_Loss: 0.7963, train D_Loss: 0.6679, FID: 257.3436
+2025-06-09 13:53:29,736 - Epoch [16], train G_Loss: 0.7780, train D_Loss: 0.6701, FID: 264.5003
+2025-06-09 14:17:49,748 - Epoch [17], train G_Loss: 0.7968, train D_Loss: 0.6684, FID: 280.1550
+2025-06-09 14:42:11,429 - Epoch [18], train G_Loss: 0.7840, train D_Loss: 0.6743, FID: 241.9745
+2025-06-09 15:06:33,800 - Epoch [19], train G_Loss: 0.7766, train D_Loss: 0.6737, FID: 288.5553
+2025-06-09 15:30:54,410 - Epoch [20], train G_Loss: 0.7619, train D_Loss: 0.6778, FID: 238.4000
+2025-06-09 15:55:14,856 - Epoch [21], train G_Loss: 0.7593, train D_Loss: 0.6770, FID: 254.2596
+2025-06-09 16:19:35,371 - Epoch [22], train G_Loss: 0.7655, train D_Loss: 0.6785, FID: 208.2321
+2025-06-09 16:43:55,079 - Epoch [23], train G_Loss: 0.7519, train D_Loss: 0.6804, FID: 207.4752
+2025-06-09 17:08:15,711 - Epoch [24], train G_Loss: 0.7493, train D_Loss: 0.6832, FID: 204.4703
+2025-06-09 17:08:15,901 - Training finished after 25 epochs.
+2025-06-09 17:08:15,901 - Final train G_Loss: 0.7493, D_Loss: 0.6832, Final FID: 204.4703
