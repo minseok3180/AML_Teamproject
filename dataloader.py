@@ -274,11 +274,39 @@ def load_data_StackMNIST(batch_size: int, img_dir: str = './data/mnist', max_ima
     return dataloader
 
 if __name__ == "__main__":
+    import matplotlib.pyplot as plt
+    from torchvision.utils import make_grid
+    import os
+
+    # 데이터 로드
     dataloader = load_data_StackMNIST(batch_size=64, img_dir='./data/mnist', max_images=1000)
+    images, labels = next(iter(dataloader))  # images: [64,3,32,32], labels: (digit1, digit2, digit3)
+
+    # (만약 이미지가 [-1,1]로 정규화되어 있다면 복원)
+    # images = images * 0.5 + 0.5
+
+    # 8x8 그리드로 묶기
+    grid = make_grid(images, nrow=8, padding=2)
+
+    # 폴더가 없다면 생성
+    os.makedirs('created_mnist', exist_ok=True)
+    save_path = 'created_mnist/stacked_mnist_samples.png'
+
+    # 그리드 출력 및 파일 저장
+    plt.figure(figsize=(8, 8))
+    plt.imshow(grid.permute(1, 2, 0).cpu().numpy())
+    plt.title(
+        "Stacked MNIST Samples\n" +
+        "\n".join(f"{i}: {tuple(lbl.tolist())}" for i, lbl in enumerate(labels[:8]))
+    )
+    plt.axis('off')
+    plt.savefig(save_path, dpi=150, bbox_inches='tight')
+    plt.close()
+
+    print(f"Saved sample grid to {save_path}")
+
+    # (원래의 확인용 루프)
     for images, labels in dataloader:
         print(images.shape)  # Expected: [64, 3, 32, 32]
-        print(labels[0])     # Expected: (digit1, digit2, digit3)
+        print(labels)        # Expected: (digit1, digit2, digit3)
         break
-
-
-

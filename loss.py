@@ -2,11 +2,7 @@ import torch
 from torch import autograd
 import torch.nn as nn
 
-def r1_penalty(discriminator, real_images, r1_lambda):
-    # if we do not use r1 penalty -> return 0
-    if r1_lambda <= 0.0:
-        return torch.tensor(0.0, device=real_images.device)
-
+def r1_penalty(discriminator, real_images):
     # 1) leaf tensor 분리 후 gradient 계산 허용
     real_images = real_images.clone().detach().requires_grad_(True)  # (B, C, H, W)
 
@@ -25,15 +21,11 @@ def r1_penalty(discriminator, real_images, r1_lambda):
     # 4) penalty 계산
     grads = grads.view(grads.size(0), -1)                   # (B, C*H*W)
     grads_norm2 = torch.sum(grads ** 2, dim=1)            # (B,)
-    penalty = 0.5 * r1_lambda * torch.mean(grads_norm2)
+    penalty = torch.mean(grads_norm2)
     return penalty
 
 
-def r2_penalty(discriminator, fake_images, r2_lambda):
-    # if we do not use r2 penalty -> return 0
-    if r2_lambda <= 0.0:
-        return torch.tensor(0.0, device=fake_images.device)
-
+def r2_penalty(discriminator, fake_images):
     # 1) leaf tensor 분리 후 gradient 계산 허용
     fake_images = fake_images.clone().detach().requires_grad_(True)  # (B, C, H, W)
 
@@ -52,11 +44,11 @@ def r2_penalty(discriminator, fake_images, r2_lambda):
     # 4) penalty 계산
     grads = grads.view(grads.size(0), -1)                   # (B, C*H*W)
     grads_norm2 = torch.sum(grads ** 2, dim=1)            # (B,)
-    penalty = 0.5 * r2_lambda * torch.mean(grads_norm2)
+    penalty = torch.mean(grads_norm2)
     return penalty
 
 
-def discriminator_rploss(discriminator, real_images, fake_images, gamma, r1_lambda, r2_lambda):
+def discriminator_rploss(discriminator, real_images, fake_images, gamma):
     # 기본 RPLoss
     real_logits = discriminator(real_images).view(-1)               # (B,)
     fake_logits = discriminator(fake_images.detach()).view(-1)     # (B,)
@@ -64,10 +56,10 @@ def discriminator_rploss(discriminator, real_images, fake_images, gamma, r1_lamb
     d_rploss = nn.functional.softplus(-diff).mean()
 
     # gradient penalties
-    penalty_r1 = r1_penalty(discriminator, real_images, r1_lambda)
-    penalty_r2 = r2_penalty(discriminator, fake_images, r2_lambda)
+    penalty_r1 = r1_penalty(discriminator, real_images)
+    penalty_r2 = r2_penalty(discriminator, fake_images)
 
-    return d_rploss + gamma * (penalty_r1 + penalty_r2)
+    return d_rploss + (gamma / 2) * (penalty_r1 + penalty_r2)
 
 
 def generator_rploss(discriminator, real_images, fake_images):
@@ -77,17 +69,16 @@ def generator_rploss(discriminator, real_images, fake_images):
     return nn.functional.softplus(-diff).mean()
 
 
-def discriminator_hinge_rploss(discriminator, real_images, fake_images, gamma,
-                              r1_lambda, r2_lambda, margin: float = 1.0):
+def discriminator_hinge_rploss(discriminator, real_images, fake_images, gamma, margin: float = 1.0):
     real_logits = discriminator(real_images).view(-1)
     fake_logits = discriminator(fake_images.detach()).view(-1)
     diff = real_logits - fake_logits
     d_hinge = nn.functional.relu(margin - diff).mean()
 
-    penalty_r1 = r1_penalty(discriminator, real_images, r1_lambda)
-    penalty_r2 = r2_penalty(discriminator, fake_images, r2_lambda)
+    penalty_r1 = r1_penalty(discriminator, real_images)
+    penalty_r2 = r2_penalty(discriminator, fake_images)
 
-    return d_hinge + gamma * (penalty_r1 + penalty_r2)
+    return d_hinge + (gamma / 2) * (penalty_r1 + penalty_r2)
 
 
 def generator_hinge_rploss(discriminator, real_images, fake_images, margin: float = 1.0):

@@ -51,8 +51,6 @@ def train(
     img_name,
     epochs: int,
     lr: float,
-    r1_lambda: float,
-    r2_lambda: float,
     device: torch.device,
     switch_loss: bool,
     switch_epoch: int,
@@ -86,7 +84,7 @@ def train(
 
     # logging
     logger = Logger(log_dir="./logs")
-    logger.log_initial(epochs, fid_batch_size, r1_lambda, r2_lambda, device, img_name)
+    logger.log_initial(epochs, fid_batch_size, device, img_name)
 
     nz = 100
     torch.manual_seed(42)
@@ -107,6 +105,8 @@ def train(
     Fid_list = []
     Mode_coverage_list = []
     KL_divergence_list = []
+    r1_penalty_list = []
+    r2_penalty_list = []
     os.makedirs('./results', exist_ok=True)
     
     if img_type == 'd1':
@@ -114,12 +114,13 @@ def train(
         clf.load_state_dict(torch.load('stacked_mnist_classifier/stacked_mnist_classifier.pth', map_location=device))
         clf.eval()
 
-        mode_counts = np.zeros(1000, dtype=int)
-        prob_sum = np.zeros(1000, dtype=float)
-        total_samples = 0
 
     print(f"Training for {epochs} epochs (burn-in: {burn_in_epochs} epochs)...")
     for epoch in range(epochs):
+
+        if img_type == 'd1':
+            mode_counts = np.zeros(1000, dtype=int)
+            total_samples= 0
                 
         epoch_D_loss = 0.0 # one epoch - Discriminator loss
         epoch_G_loss = 0.0 # one epoch - Generator loss 
@@ -148,13 +149,14 @@ def train(
             gamma = gamma_start + 0.5*(gamma_end - gamma_start)*(1 - math.cos(math.pi * t))
 
             current_ema_hl_mimg   = ema_start + 0.5*(ema_end - ema_start)*(1 - math.cos(math.pi*t))
-            current_ema_hl_images = current_ema_hl_mimg * 1_000_000
 
             if current_ema_hl_mimg == 0.0:
                 ema_decay = 0.0
             else:
                 H = current_ema_hl_mimg * 1_000_000 
                 ema_decay = math.exp(-math.log(2) * batch_size / H)
+            
+            print(gamma, beta2, ema_decay)
 
             #######################
             # Discriminator Update
@@ -170,11 +172,10 @@ def train(
             if img_type == 'd1':
                 with torch.no_grad():
                     logits = clf(fake_images)
-                    probs = F.softmax(logits, dim=1).cpu().numpy()  # (batch_size, 1000)
+                    probs  = F.softmax(logits, dim=1).cpu().numpy()
                 preds = probs.argmax(axis=1)
                 for c in preds:
                     mode_counts[c] += 1
-                prob_sum += probs.sum(axis=0)
                 total_samples += batch_size
             
             # Discriminator loss
@@ -184,16 +185,20 @@ def train(
                 # 2) move images to cuda:0 for penalty
                 real_images0 = real_images.clone().detach().to('cuda:0').requires_grad_(True)
                 fake_images0 = fake_images.clone().detach().to('cuda:0').requires_grad_(True)
-                # 3) compute RP‐loss using main_disc on cuda:0
+                # 3) compute RP‐loss 
                 d_loss_basic = nn.functional.softplus(-(discriminator(real_images) - discriminator(fake_images).detach())).mean()
-                penalty_r1 = r1_penalty(main_disc, real_images0, r1_lambda)
-                penalty_r2 = r2_penalty(main_disc, fake_images0, r2_lambda)
-                d_loss = d_loss_basic + gamma * (penalty_r1 + penalty_r2)
+                penalty_r1 = r1_penalty(main_disc, real_images0)
+                penalty_r2 = r2_penalty(main_disc, fake_images0)
+                d_loss = d_loss_basic + (gamma / 2) * (penalty_r1 + penalty_r2)
+
+                r1_penalty_list.append(penalty_r1.item())
+                r2_penalty_list.append(penalty_r2.item())
+ 
             else:
                 if epoch < switch_epoch:
-                    d_loss = discriminator_rploss(discriminator, real_images, fake_images, gamma, r1_lambda=r1_lambda, r2_lambda=r2_lambda)
+                    d_loss = discriminator_rploss(discriminator, real_images, fake_images, gamma)
                 else:
-                    d_loss = discriminator_hinge_rploss(discriminator, real_images, fake_images, gamma, r1_lambda=r1_lambda, r2_lambda=r2_lambda)
+                    d_loss = discriminator_hinge_rploss(discriminator, real_images, fake_images, gamma)
 
             d_loss.backward() # backprop 
             optimizer_D.step() # parameter update 
@@ -252,7 +257,7 @@ def train(
                 fake_samples = ema_generator(fixed_noise).cpu()
                 plt.figure(figsize=(12, 12))
                 plt.axis("off")
-                plt.title(f"Generated FFHQ Images - Epoch {epoch+1}")
+                plt.title(f"Generated Images - Epoch {epoch+1}")
                 for idx in range(16):
                     plt.subplot(4, 4, idx + 1)
                     plt.imshow(fake_samples[idx].permute(1, 2, 0) * 0.5 + 0.5)
@@ -274,17 +279,22 @@ def train(
             }, f'./results/checkpoint_epoch_{epoch+1}.pth')
 
         if img_type == 'd1':
-            p_y = prob_sum / total_samples
-            coverage = int((mode_counts > 0).sum())
-            q = np.full(1000, 1/1000)
-            p_safe = np.where(p_y > 0, p_y, 1e-12)
-            inv_kl = float((q * np.log(q / p_safe)).sum())
-            print(f"[Epoch {epoch}] Mode Coverage: {coverage}/1000, Inverse KL: {inv_kl:.6f}")
+            counts = mode_counts  # shape (1000,)
+            total  = total_samples
+            p = counts / total            
+
+            q = np.full_like(p, 1 / p.size)
+            coverage = int((counts > 0).sum())
+
+            p_theta = np.clip(p, 1e-12, None)
+
+            rev_kl = float((p_theta * np.log(p_theta / q)).sum())
+            print(f"[Epoch {epoch+1}] Mode Coverage: {coverage}/1000, Reverse KL: {rev_kl:.6f}")
             
         # fid scoring
         fid_value = fid_scoring(epoch,
         fid_every, 
-        generator, 
+        ema_generator, 
         discriminator, 
         fid_real_subset, 
         fid_batch_size,
@@ -298,10 +308,10 @@ def train(
         
         Fid_list.append(fid_value)
         Mode_coverage_list.append(coverage if img_type == 'd1' else None)
-        KL_divergence_list.append(inv_kl if img_type == 'd1' else None)
+        KL_divergence_list.append(rev_kl if img_type == 'd1' else None)
 
         if img_type == 'd1':
-            logger.logd1(epoch, avg_G_loss, avg_D_loss, fid_value, coverage, inv_kl)
+            logger.logd1(epoch, avg_G_loss, avg_D_loss, fid_value, coverage, rev_kl)
         else:
             logger.log(epoch, avg_G_loss, avg_D_loss, fid_value)
 
@@ -325,6 +335,15 @@ def train(
     plt.savefig('./results/training_fid.png')
     plt.close()
 
+    plt.figure(figsize=(8,4))
+    plt.plot(r1_penalty_list, label="R1 penalty")
+    plt.plot(r2_penalty_list, label="R2 penalty")
+    plt.xlabel("Iteration")
+    plt.ylabel("Penalty value")
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig("./results/penalties.png")
+    plt.close()
 
     if img_type == 'd1':
         plt.figure(figsize=(10, 5))
@@ -337,8 +356,8 @@ def train(
         plt.close()
 
         plt.figure(figsize=(10, 5))
-        plt.title("Inverse KL Divergence During Training")
-        plt.plot(KL_divergence_list, label="Inverse KL Divergence")
+        plt.title("Reverse KL Divergence During Training")
+        plt.plot(KL_divergence_list, label="Reverse KL Divergence")
         plt.xlabel("Epochs")
         plt.ylabel("Value")
         plt.legend()
@@ -361,8 +380,8 @@ if __name__ == "__main__":
     '''
 
     img_type = 'd1'
-    batch_size = 512
-    max_images = 128000
+    batch_size = 256
+    max_images = 10000
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
@@ -372,13 +391,12 @@ if __name__ == "__main__":
         print("Stacked MNIST data loading...")
         img_dir = "./data/mnist"
         dataloader = load_data_StackMNIST(batch_size, img_dir, max_images=max_images)
-        gen_base_channels = [256, 256, 256, 256]        # for 32x32 output
+        # gen_base_channels = [256, 256, 256, 256]        # for 32x32 output
+        gen_base_channels = [128, 128, 128, 128]
 
         img_name = 'Stacked MNIST'
         lr = 0.0002
-        r1_lambda = 10
-        r2_lambda = 10
-        clf_epochs = 10
+        clf_epochs = 3 
         train_classifier(dataloader, clf_epochs, lr, device)
 
 
@@ -390,8 +408,7 @@ if __name__ == "__main__":
 
         img_name = 'FFHQ-64'
         lr = 0.0002
-        r1_lambda = 2
-        r2_lambda = 2
+        
 
     elif img_type == 'd3' : 
         print("cifar-10 data loading...")
@@ -401,8 +418,7 @@ if __name__ == "__main__":
 
         img_name = 'CIFAR-10'
         lr = 0.0002
-        r1_lambda = 2
-        r2_lambda = 2
+        
 
     elif img_type == 'd4':
         print("ImageNet-32 data loading...")
@@ -412,8 +428,6 @@ if __name__ == "__main__":
 
         img_name = 'ImageNet-32'
         lr = 0.0002
-        r1_lambda = 2
-        r2_lambda = 2
 
     else : print('data type error!')
 
@@ -448,11 +462,10 @@ if __name__ == "__main__":
     print(f'epoch : {epochs}')
     print(f'batch size : {batch_size}')
     print(f'learning rate : {lr}')
-    print(f'r1_lambda : {r1_lambda}')
-    print(f'r2_lambda : {r2_lambda}')
+
     
 
-    train(G, D, dataloader, img_type, img_name, epochs, lr, r1_lambda, r2_lambda, device,
+    train(G, D, dataloader, img_type, img_name, epochs, lr, device,
         switch_loss=False,
         switch_epoch=int(epochs/2),
         fid_batch_size=batch_size,

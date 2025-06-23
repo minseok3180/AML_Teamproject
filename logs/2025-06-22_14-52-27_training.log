@@ -1,0 +1,15 @@
+2025-06-22 14:52:27,078 - Stacked MNIST parameter setting
+2025-06-22 14:52:27,079 - Epoch : 1000, batch size : 256
+2025-06-22 14:52:27,079 - ################ Training Start ################
+2025-06-22 14:58:56,322 - Epoch [1], train G_Loss: 62.1168, train D_Loss: 6393.7696, FID: 471.6392, Mode Coverage: 9.0000, KL : 6.0583
+2025-06-22 15:05:25,496 - Epoch [2], train G_Loss: 52.9464, train D_Loss: 413650522.2698, FID: 470.7138, Mode Coverage: 1.0000, KL : 6.9078
+2025-06-22 15:11:55,171 - Epoch [3], train G_Loss: 6717.7480, train D_Loss: 94228981.9691, FID: 443.6298, Mode Coverage: 3.0000, KL : 6.2958
+2025-06-22 15:18:24,361 - Epoch [4], train G_Loss: 8633.9911, train D_Loss: 847110.9640, FID: 443.6210, Mode Coverage: 1.0000, KL : 6.9078
+2025-06-22 15:24:53,738 - Epoch [5], train G_Loss: 3574.9949, train D_Loss: 533106451.1500, FID: 443.5905, Mode Coverage: 1.0000, KL : 6.9078
+2025-06-22 15:31:24,142 - Epoch [6], train G_Loss: 15671.9430, train D_Loss: 7111922446.2921, FID: 402.9590, Mode Coverage: 6.0000, KL : 6.1952
+2025-06-22 15:37:53,588 - Epoch [7], train G_Loss: 5010.8124, train D_Loss: 1700464.6585, FID: 396.1753, Mode Coverage: 29.0000, KL : 5.6489
+2025-06-22 15:44:23,118 - Epoch [8], train G_Loss: 1670.2347, train D_Loss: 1678324.8462, FID: 408.6422, Mode Coverage: 4.0000, KL : 6.3040
+2025-06-22 15:50:53,217 - Epoch [9], train G_Loss: 1995.0700, train D_Loss: 1883665.6833, FID: 410.4858, Mode Coverage: 4.0000, KL : 6.6657
+2025-06-22 15:57:22,474 - Epoch [10], train G_Loss: 1205.6505, train D_Loss: 1729800.9018, FID: 407.2535, Mode Coverage: 3.0000, KL : 6.6636
+2025-06-22 16:03:51,338 - Epoch [11], train G_Loss: 1052.2035, train D_Loss: 1294928.2758, FID: 409.6149, Mode Coverage: 2.0000, KL : 6.8366
+2025-06-22 16:10:20,436 - Epoch [12], train G_Loss: 945.4916, train D_Loss: 1247605.7973, FID: 382.3027, Mode Coverage: 2.0000, KL : 6.8563
