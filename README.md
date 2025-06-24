@@ -69,18 +69,11 @@ img_type = 'd1'  # Change to 'd2', 'd3', or 'd4' as needed
 If you want to run the model on other setting of improvement, adjust the following parameter in `main.py` to select the options:
 1. change applying attention mechanism
 ```python
-'''
-# Change mhsa
-use_mhsa = False
-'''
 use_mhsa = False # Change to True 
 ```
 
 2. change applying switching loss
 ```python
-'''
-switch_loss = False
-'''
 switch_loss = False # Change to True 
 ```
 
@@ -88,6 +81,4 @@ switch_loss = False # Change to True
 
 Further results and details on the improvements and experimental outcomes will be added soon.
 
----
 
-If you have any questions or issues, please open an issue in the repository, and we will address them as soon as possible.
