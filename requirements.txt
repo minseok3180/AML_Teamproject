@@ -44,7 +44,7 @@ pillow==11.0.0
 propcache==0.3.2
 psutil==7.0.0
 pyarrow==20.0.0
-pyparsing==3.2.3
+# pyparsing==3.2.3
 python-dateutil==2.9.0.post0
 pytorch-fid==0.3.0
 pytz==2025.2

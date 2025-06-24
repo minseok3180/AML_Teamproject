@@ -3,8 +3,8 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from util import ResidualBlock
-from mhsa import MultiHeadSelfAttention
+from network import ResidualBlock
+from util/mhsa import MultiHeadSelfAttention
 
 
 class GBlock(nn.Module):

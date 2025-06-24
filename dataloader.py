@@ -9,7 +9,7 @@ import gzip
 from typing import Tuple, Optional
 import PIL
 from datasets import load_dataset
-
+import torch.distributed as dist
 
 ### CIFAR-10 ###
 class CIFAR10Dataset(Dataset):
@@ -263,9 +263,16 @@ def load_data_StackMNIST(batch_size: int, img_dir: str = './data/mnist', max_ima
     
     full_dataset = StackedMNISTDataset(img_dir, num_images=max_images, transform=transform)
 
-    # DDP
-    world_size = torch.cuda.device_count()
-    local_rank = int(os.environ.get("LOCAL_RANK", 0))
+    if dist.is_initialized():            # DDP 로 초기화된 경우
+        world_size = dist.get_world_size()
+        local_rank = dist.get_rank()
+    else:                                # 싱글 GPU / DDP 미사용
+        world_size = 1
+        local_rank = 0
+
+    # # DDP
+    # world_size = torch.cuda.device_count()
+    # local_rank = int(os.environ.get("LOCAL_RANK", 0))
 
     sampler = DistributedSampler(full_dataset, num_replicas=world_size, rank=local_rank, shuffle=True)
     dataloader = DataLoader(

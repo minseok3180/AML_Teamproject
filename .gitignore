@@ -13,6 +13,6 @@ results/
 
 _pycache
 __pycache__
-venv
+.venv/
 eda.ipynb
 

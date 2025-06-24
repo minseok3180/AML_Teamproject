@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from util import ResidualBlock, MinibatchDiscrimination
+from network import ResidualBlock, MinibatchDiscrimination
 
 
 class GBlock(nn.Module):
