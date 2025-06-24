@@ -37,11 +37,11 @@ else:
     print("Using baseline model (model.py)")
 
 # Global variables 
-duration_mimg   = 5.0  
+duration_mimg   = 4.0  
 
 beta2_start  = 0.9      # inital β₂
 beta2_end    = 0.99     # final β₂
-burn_in_mimg = 3.0      # Mimg
+burn_in_mimg = 4.0      # Mimg
 
 # warm-up span in Mimg
 warmup_mimg  = 1      # warm-up over first 0.5 Mimg

@@ -78,7 +78,20 @@ switch_loss = False # Change to True
 ```
 
 ## Result
+1. Training Visualization
 
-Further results and details on the improvements and experimental outcomes will be added soon.
+<img src="image/training_fid.png" width="800"/>
+<img src="image/training_kl.png" width="800"/>
+<img src="image/training_loss.png" width="800"/>
+<img src="image/training_mode_coverage.png" width="800"/>
+
+Upon examining the loss graph, it was observed that from the middle of training, the generator's (G) loss begins to diverge compared to the discriminator's (D), indicating an imbalance. This imbalance is also reflected in the mode coverage graph, where coverage does not improve significantly. To address this, additional techniques need to be developed to help the generator converge, which is essential for producing higher-quality images.
+
+2. Generated Image
+
+<img src="image/generated_image.png" width="800"/>
+
+The generated images from Stacked MNIST show that each RGB component forms distinct boundaries in the early stages of generation. However, due to a limited number of epochs and the generator's divergence, the quality of the images does not improve further. This highlights the need for further optimization to enhance image quality.
+
 
 
