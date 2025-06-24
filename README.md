@@ -11,7 +11,7 @@ We focus on the reproduction and improvement of the paper titled **"The GAN is d
 
 This code is based on the final paper submission and presentation materials. If you would like to check the paper (excluding reproduction content) and the final results of the reproduction and improvement experiments, please refer to the following link:
 
-- [https://drive.google.com/drive/folders/18jmY8lqBs-5wVQ88kPy73aKHpDaZyCCm](#)
+- [https://drive.google.com/drive/folders/18jmY8lqBs-5wVQ88kPy73aKHpDaZyCCm?usp=sharing](#)
 
 ## Dataset
 Stacked_MNIST uses the MNIST data from the following link, and a dataloader will be automatically created. For CIFAR-10 and ImageNet-32, download the data from the provided link, and for FFHQ-64, the data will be downloaded directly by the code from the provided link without the need for a separate download. All data should be placed inside the 'data' folder.
