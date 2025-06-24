@@ -1,43 +1,93 @@
-# AML_Teamproject
-2025-spring-DATA303
+# Team 2 Final Submission for Advanced Machine Learning (20251R-DATA303)
+- 2020170822 Minseok Kwon
+- 2020320109 Taegyu Hwang
+- 2022320331 Jiyoung Hwang
 
-# Dataset
+## Abstract
+
+We focus on the reproduction and improvement of the paper titled **"The GAN is dead; long live the GAN! A Modern Baseline GAN."** Our implementation is based on the Stacked-MNIST dataset, where we applied improvements such as loss scheduling and attention mechanisms. Through a comparative analysis, we aimed to address key issues in the training process, including instability, mode collapse, and gradient vanishment, which are common problems in traditional GANs.
+
+## Information
+
+This code is based on the final paper submission and presentation materials. If you would like to check the paper (excluding reproduction content) and the final results of the reproduction and improvement experiments, please refer to the following link:
+
+- [https://drive.google.com/drive/folders/18jmY8lqBs-5wVQ88kPy73aKHpDaZyCCm](#)
+
+## Dataset
+Stacked_MNIST uses the MNIST data from the following link, and a dataloader will be automatically created. For CIFAR-10 and ImageNet-32, download the data from the provided link, and for FFHQ-64, the data will be downloaded directly by the code from the provided link without the need for a separate download. All data should be placed inside the 'data' folder.
+
 1. StackedMNIST
 https://paperswithcode.com/dataset/stacked-mnist
 
-2. FFHQ256
-https://www.kaggle.com/datasets/denislukovnikov/ffhq256-images-only 
+2. CIFAR - 10
+https://www.cs.toronto.edu/~kriz/cifar.html
 
+2. FFHQ-64
+https://huggingface.co/datasets/Dmini/FFHQ-64x64
 
-# Requirement
+3. ImageNet-64
+https://www.image-net.org/download-images.php
 
-- python 3.7.10
-- torch == 1.7.1 + cu110
+## Setting
 
-- click
-- requests
-- psutil
-- scipy
-- tqdm
-- ninja
+The code was trained using 4 × RTX 4090 GPUs (VRAM = 48GB) over approximately 7 hours of parallel training. A minimum of one GPU with at least 128GB of VRAM is required for the experiments.
 
+To set up the environment, create a virtual environment using the provided `requirements.txt`. The Python version and CUDA version are flexible, but if you encounter any issues, please install the necessary dependencies. 
 
-# gitconfig
-git config user.name "Minseok Kwon"
-git config user.email "als3180@gmail.com"
+```bash
+# To create the virtual environment and install dependencies
+python -m venv venv
+source venv/bin/activate  # On Windows, use venv\Scripts\activate
+pip install -r requirements.txt
+```
 
-git config user.name "Jiyoung Hwang"
-git config user.email "hjyhera@gmail.com"
+If you face any errors, you might need to install additional dependencies depending on your setup (e.g., specific Python versions or CUDA configurations).
 
-git config user.name "Taegyu Hwang"
-git config user.email "yyggh337@gmail.com"
+## Run
 
-# 명령어 정리
-# 백그라운드에서 시작
-nohup torchrun --nproc_per_node=4 main.py > output.log 2>&1 &
+The code works with the Stacked-MNIST dataset by default. Both training and image generation run simultaneously, with the results, checkpoints, and generated images stored in the `log` and `result` folders.
 
-# 돌아가는 과정 (원래 터미널에 뜨던 것들) 확인
-output.log파일 보기
+To start training and generation on 4 GPUs, use the following command:
 
-# 현재 돌아가는 백그라운드 종료
-kill -9 <PID>
+```bash
+torchrun --nproc_per_node=4 main.py
+```
+
+If you want to run the model on other datasets, adjust the following parameter in `main.py` to select the dataset:
+
+```python
+'''
+    img_type
+    dataset 1 : Stacked MNIST
+    dataset 2 : FFHQ-64
+    dataset 3 : CIFAR-10
+    dataset 4 : ImageNet-32
+'''
+img_type = 'd1'  # Change to 'd2', 'd3', or 'd4' as needed
+```
+
+If you want to run the model on other setting of improvement, adjust the following parameter in `main.py` to select the options:
+1. change applying attention mechanism
+```python
+'''
+# Change mhsa
+use_mhsa = False
+'''
+use_mhsa = False # Change to True 
+```
+
+2. change applying switching loss
+```python
+'''
+switch_loss = False
+'''
+switch_loss = False # Change to True 
+```
+
+## Result
+
+Further results and details on the improvements and experimental outcomes will be added soon.
+
+---
+
+If you have any questions or issues, please open an issue in the repository, and we will address them as soon as possible.

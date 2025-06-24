@@ -37,17 +37,17 @@ else:
     print("Using baseline model (model.py)")
 
 # Global variables 
-duration_mimg   = 10.0  
+duration_mimg   = 5.0  
 
 beta2_start  = 0.9      # inital β₂
 beta2_end    = 0.99     # final β₂
-burn_in_mimg = 2.0      # Mimg
+burn_in_mimg = 3.0      # Mimg
 
 # warm-up span in Mimg
-warmup_mimg  = 0.5      # warm-up over first 0.5 Mimg
+warmup_mimg  = 1      # warm-up over first 0.5 Mimg
 
 gamma_start = 10.0    # initial γ
-gamma_end   = 1    # final γ
+gamma_end   = 5    # final γ
 
 ema_start     = 0.0      # initial half-life in Mimg
 ema_end       = 0.5      # target  half-life in Mimg
@@ -96,8 +96,12 @@ def train(
         device (torch.device)
     """
     # optimizer
-    optimizer_G = optim.Adam(generator.parameters(), lr=1e-4, betas=(0.5, beta2_start))
-    optimizer_D = optim.Adam(discriminator.parameters(), lr=5e-5, betas=(0.5, beta2_start))
+    if img_type == 'd1': 
+        optimizer_G = optim.Adam(generator.parameters(), lr=1e-4, betas=(0.5, beta2_start))
+        optimizer_D = optim.Adam(discriminator.parameters(), lr=5e-5, betas=(0.5, beta2_start))
+    else : 
+        optimizer_G = optim.Adam(generator.parameters(), lr=lr, betas=(0.5, beta2_start))
+        optimizer_D = optim.Adam(discriminator.parameters(), lr=lr, betas=(0.5, beta2_start))
 
     # implement AMP
     # scaler = GradScaler()
@@ -259,7 +263,7 @@ def train(
                 r2_penalty_list.append(r2_val.item())
             else:
                 penalty_r1 = penalty_r2 = 0.0     # float
-            # --------- (switch_loss 분기 단순화) ----------
+            # --------- (switch_loss simple) ----------
             if epoch < switch_epoch or not switch_loss:
                 d_loss = discriminator_rploss(
                     discriminator, real_images, fake_images,
@@ -378,7 +382,7 @@ def train(
                 rev_kl = float((p_theta * np.log(p_theta / q)).sum())
             else:
                 coverage = 0
-                rev_kl = 0.0
+                rev_kl = float('inf') 
             if is_main_process():
                 print(f"[Epoch {epoch+1}] Mode Coverage: {coverage}/1000, Reverse KL: {rev_kl:.6f}")
         
@@ -394,7 +398,6 @@ def train(
         img_type,
         device)
 
-        #eval 모드에서 다시 train 모드로
         generator.train()
         discriminator.train()
         
@@ -422,7 +425,6 @@ def train(
             'R2_penalty': r2_penalty_list,
         }
     
-        # 각 리스트의 길이가 다를 수 있으니 pandas.Series 로 변환
         df_metrics = pd.DataFrame({k: pd.Series(v) for k, v in metrics.items()})
         df_metrics.to_csv('./results/training_metrics.csv', index=False)
 
@@ -491,7 +493,6 @@ if __name__ == "__main__":
     '''
 
 
-    #DDP 초기화
     if 'WORLD_SIZE' in os.environ:
         dist.init_process_group(backend="nccl", init_method="env://")
         local_rank = int(os.environ["LOCAL_RANK"])
@@ -506,40 +507,39 @@ if __name__ == "__main__":
         is_distributed = False                      
         print(f"Running on single device: {device}")
 
+    # Select image dataset
    
     img_type = 'd1'
+    switch_loss = False
     batch_size = 128
-    max_images = 128000
+    
  
 
     if img_type == 'd1':
        
+        max_images = 128000
+        print("Stacked MNIST data loading...")
         dataloader = load_data_StackMNIST(
             batch_size, "./data/mnist", max_images)
         dataset = dataloader.dataset
-
-        # if is_main_process():
-        #     print("Stacked MNIST data loading...")
-        # img_dir = "./data/mnist"
-        # dataloader = load_data_StackMNIST(batch_size, img_dir, max_images=max_images)
-
+        
         gen_base_channels = [256, 256, 256, 256]        # for 32x32 output
-        # gen_base_channels = [128, 128, 128, 128]
+        # gen_base_channels = [128, 128, 128, 128]      # to experiment of improvement 
 
-
+        max_images = 128000
         img_name = 'Stacked MNIST'
-        lr = 0.0002
+        lr = 0.0002   # but change 
         clf_epochs = 30
 
 
     elif img_type == 'd2' : 
         if is_main_process():
             print("FFHQ64 data loading...")
+        max_images = 50000
         tfrecord_dir = "./data/ffhq64"  # Point to the tfrecord directory
         dataloader = load_data_ffhq64(batch_size, max_images=max_images)
         dataset = dataloader.dataset
         gen_base_channels = [128, 256, 256, 256, 256]
-
 
         img_name = 'FFHQ-64'
         lr = 0.0002
@@ -550,9 +550,12 @@ if __name__ == "__main__":
         if is_main_process():
             print("cifar-10 data loading...")
         img_dir = "./data/cifar-10"
+        max_images = 50000
         dataloader = load_data_cifar10(batch_size, img_dir, max_images=max_images)
         dataset = dataloader.dataset
-        gen_base_channels = [256, 128, 64, 32]        # for 32x32 output 
+        gen_base_channels = [128, 128, 128, 128]
+        # for 32x32 output 
+
 
         img_name = 'CIFAR-10'
         lr = 0.0002
@@ -565,9 +568,11 @@ if __name__ == "__main__":
         if is_main_process():
             print("ImageNet-32 data loading...")
         img_dir = "./data/imagenet32"
+        max_images = 50000
         dataloader = load_data_imagenet32(batch_size, img_dir, max_images=max_images)
         dataset = dataloader.dataset
-        gen_base_channels = [1536, 1536, 1536, 1536]        # for 32x32 output 
+        gen_base_channels = [512, 512, 512, 512]
+       # for 32x32 output 
 
         img_name = 'ImageNet-32'
         lr = 0.0002
@@ -628,73 +633,9 @@ if __name__ == "__main__":
         epochs         = epochs,
         lr             = lr,
         device         = device,
-        switch_loss    = False,
+        switch_loss    = switch_loss,
         switch_epoch   = int(epochs // 2),
         fid_batch_size = batch_size,
         fid_num_images = 12_800,
         fid_every      = 1
     )
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-    # dataset_size    = len(dataloader.dataset) 
-    # epochs = math.ceil(duration_images / dataset_size)
-
-    # # Discriminator channels: reverse of generator
-    # disc_base_channels = list(reversed(gen_base_channels))
-    
-    # if is_main_process():
-    #     print("############################### model generating ###############################")
-    #     print(f"max images : {max_images} --- dataset size: {len(dataloader.dataset)}")
-
-
-    # G = Generator(BaseChannels=gen_base_channels).to(device)
-    # D = Discriminator(BaseChannels=disc_base_channels).to(device)
-    
-    # if 'WORLD_SIZE' in os.environ:
-    #     G = DDP(G, device_ids=[local_rank], output_device=local_rank)
-    #     D = DDP(D, device_ids=[local_rank], output_device=local_rank)
-
-    # G.train()
-    # D.train()
-    
-    # def count_parameters(model):
-    #     return sum(p.numel() for p in model.parameters() if p.requires_grad)
-    
-    # if is_main_process():
-    #     g_model = G.module if hasattr(G, "module") else G
-    #     d_model = D.module if hasattr(D, "module") else D
-    #     print(f"Generator parameter: {count_parameters(g_model):,}")
-    #     print(f"Discriminator parameter: {count_parameters(d_model):,}")
-    #     print(f'Using device : {device}')
-    #     print(f'epoch : {epochs}')
-    #     print(f'batch size : {batch_size}')
-    #     print(f'learning rate : {lr}')
-
-
-    
-
-
-    # train(G, D, dataloader, img_type, img_name, epochs, lr, device,
-    #     switch_loss=False,
-    #     switch_epoch=int(epochs/2),
-    #     fid_batch_size=batch_size,
-    #     fid_num_images=12800,
-    #     fid_every=1)
-
